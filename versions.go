@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -13,29 +12,32 @@ type toolVersionInfo struct {
 }
 
 func detectToolVersions(p Paths) toolVersionInfo {
-	// Temporary diagnostic: do not launch external executables during startup.
-	// Restore version probing after identifying the Windows console flashes.
 	return toolVersionInfo{
-		Whisper: "TEST (version detection disabled)",
-		FFmpeg:  "TEST (version detection disabled)",
+		Whisper: readToolVersion(p.Whisper, "--version", "whisper.cpp version:"),
+		FFmpeg:  readToolVersion(p.FFmpeg, "-version", "ffmpeg version"),
 	}
 }
 
 func readToolVersion(path, flag, prefix string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, flag)
-	prepareProcess(cmd)
-	out, err := cmd.CombinedOutput()
-	// Some builds print --version to stderr; CombinedOutput captures both.
-	for _, line := range strings.Split(string(out), "\n") {
+
+	// Use the same process-launching path as transcription, which also
+	// sets the runtime directory and hides subprocess consoles on Windows.
+	version := ""
+	err := runProcess(ctx, path, []string{flag}, func(line string) {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToLower(line), strings.ToLower(prefix)) {
-			if prefix == "whisper.cpp version:" {
-				return strings.TrimSpace(strings.TrimPrefix(line, prefix))
-			}
-			return line
+		if !strings.HasPrefix(strings.ToLower(line), strings.ToLower(prefix)) {
+			return
 		}
+		if prefix == "whisper.cpp version:" {
+			version = strings.TrimSpace(line[len(prefix):])
+		} else {
+			version = line
+		}
+	})
+	if version != "" {
+		return version
 	}
 	if ctx.Err() != nil {
 		return "unavailable (timeout)"

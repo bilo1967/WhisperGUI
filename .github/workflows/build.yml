@@ -3,7 +3,21 @@ name: Build WhisperGUI executables
 on:
   push:
     branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/**'
+      - 'winres/**'
+      - '.github/workflows/build.yml'
   pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/**'
+      - 'winres/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 permissions:

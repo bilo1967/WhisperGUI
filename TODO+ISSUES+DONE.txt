@@ -1,0 +1,72 @@
+WhisperGUI - TODO / ISSUES / DONE
+Updated: 2026-11-12 | Version: 0.6.27
+
+TODO
+----
+- Add Advanced Settings UI for disconnect grace period (already configurable in YAML).
+- Validate WebSocket lifecycle across sleep/resume and multiple tabs on Windows/macOS/Linux.
+- Validate on macOS and Linux, including native file dialogs and packaging.
+- Consider OpenVINO on supported Intel hardware (not planned for initial builds).
+- Later: application update notification through a JSON manifest on whisper.ditlab.it.
+- Later: improve installer and distribution signing for open source release.
+
+ISSUES
+------
+- Windows native file picker focus/ownership: attach-to-browser approach can behave unpredictably; keep under observation and prefer safe, isolated solution.
+- Brief console-window flicker may still occur at startup on Windows.
+- WebSocket closure needs cross-platform runtime verification; browser sleep/resume may delay connection loss detection.
+- Full Windows/macOS/Linux build and runtime QA remains to be performed for v0.6.6.
+
+DONE
+----
+- v0.6.14: Silero VAD 6.2.0 catalog entry, persisted enable checkbox, and CLI integration.
+
+- Local Go HTTP backend and embedded HTML/CSS/JS frontend.
+- Native file picker; local FFmpeg conversion and whisper.cpp transcription.
+- Model manager: sequential download, update, delete, cancel, progress.
+- Output files saved next to original media (TXT, timestamped TXT, SRT, VTT, JSON).
+- Runtime version reporting and GitHub attribution for whisper.cpp.
+- English interface, light/dark theme preference in YAML, copyable paths.
+- Single-instance mechanism (v0.6.5).
+- Dedicated WebSocket presence tracking replaces HTTP heartbeat/pagehide (v0.6.7).
+- Clear log button (v0.6.5).
+- Friendly single-message disconnection notification and privacy information (v0.6.6).
+
+- [DONE v0.6.8] Optional DTW token timestamps and full JSON output for supported models.
+
+- [DONE v0.6.9] Disable Flash Attention when DTW is active; add English tooltips and Polish/Ukrainian defaults.
+
+- [DONE v0.6.10] Post-process full DTW JSON to per-word JSON and CSV, retaining original JSON.
+
+- [DONE v0.6.11] Advanced glossary hint (original persistent implementation; replaced by session-only hint in v0.6.18).
+
+- [DONE v0.6.12] Explicit Exit button with confirmation, active-operation warning, authorized shutdown and closed-page message.
+
+DONE (0.6.13): Exit button moved to far right and subtly differentiated in both themes.
+
+DONE 0.6.14: Added optional Silero VAD 6.2.0 download and silence detection in Advanced Settings.
+
+DONE 0.6.15: More visible Select file button and Transcribe icon; categorized ASR/auxiliary models; reset inactive model progress on dialog reopen.
+
+DONE 0.6.16: Replace Select file and Transcribe glyphs with user-provided SVG icons.
+
+DONE 0.6.17: Optional Praat TextGrid export (Segments and Words tiers, DTW required); CPU only moved to Advanced Settings; Copy log and Copy Diagnostics.
+
+DONE 0.6.18: Session-only glossary text, separate carry choice, experimental feature toggle for TextGrid, temperature slider, shorter hints and CPU/VAD descriptions.
+
+DONE 0.6.19: Temperature slider aligned with label, shortened guidance, confirmed default zero omits --temperature.
+
+DONE 0.6.20: Optional ZIP packaging of result files (enabled by default), compact Open/Show/Delete archive bar under log, verified archive creation before cleanup, preserving files on packaging failure.
+
+DONE 0.6.21: Added small circular availability indicators to the left of each Model Manager row (green check for downloaded, neutral empty circle for missing).
+
+DONE 0.6.22: Windows Open/Show output archive use ShellExecuteW with the foreground browser window as owner (same focus/ownership approach as the file picker).
+DONE 0.6.23: Windows archive Open/Show attempts to activate the resulting Explorer or archive window. ShellExecute owner alone does not give foreground activation rights; includes a short bounded window lookup and does not steal focus after the user switches windows. Requires testing on Windows.
+
+DONE 0.6.24: Avoid activating unrelated Explorer windows in Show; restore and persist the selected ASR model.
+
+DONE 0.6.25: Simplify archive actions to Show in folder / Delete; allow unsaved session experimental features; missing model circle starts download; Open models folder action.
+
+DONE 0.6.26: User-provided ZIP icon in output bar; green Show in folder button (light/dark theme).
+
+DONE 0.6.27: Solid green Show in folder button; persist and restore selected transcription language.

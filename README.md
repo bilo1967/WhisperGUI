@@ -21,7 +21,7 @@ WhisperGUI is a lightweight, cross-platform graphical interface for local audio 
 
 ## Building
 
-Requires **Go 1.22 or later** and the Go modules specified in `go.mod`.
+Requires **Go 1.25 or later** and the Go modules specified in `go.mod`.
 
 On Windows, build a console-enabled executable for debugging:
 
@@ -69,4 +69,4 @@ DTW word timestamps are approximate; the TextGrid export converts those values i
 
 WhisperGUI is under active development. The source code is distributed under the [MIT License](LICENSE). whisper.cpp, FFmpeg and any bundled runtime components retain their own licenses; check the notices and obligations associated with the binaries selected for distribution.
 
-The GitHub Actions workflow files are currently placeholders and do **not** yet compile or publish releases. See [CHANGES.md](CHANGES.md) for the version history.
+See [CHANGES.md](CHANGES.md) for the version history.

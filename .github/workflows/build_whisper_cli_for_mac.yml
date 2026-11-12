@@ -1,0 +1,59 @@
+
+name: Build whisper.cpp for macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout whisper.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: v1.9.5
+          submodules: recursive
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON \
+            -DGGML_NATIVE=OFF \
+            -DWHISPER_BUILD_TESTS=OFF
+
+      - name: Build whisper-cli
+        run: cmake --build build --config Release --target whisper-cli -j 3
+
+      - name: Verify
+        run: |
+          ./build/bin/whisper-cli --version
+          file build/bin/whisper-cli
+          otool -L build/bin/whisper-cli
+
+      - name: Package
+        run: |
+          mkdir -p package/bin
+          cp build/bin/whisper-cli package/bin/
+          chmod +x package/bin/whisper-cli
+          cp LICENSE package/ 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-1.9.5-macos-${{ matrix.arch }}
+          path: package/
+          if-no-files-found: error

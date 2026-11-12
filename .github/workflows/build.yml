@@ -1,1 +1,71 @@
-# empty
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            executable: WhisperGUI.exe
+            artifact: whispergui-windows-amd64
+          - label: Linux x64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            executable: WhisperGUI
+            artifact: whispergui-linux-amd64
+          - label: macOS Intel
+            runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            executable: WhisperGUI
+            artifact: whispergui-darwin-amd64
+          - label: macOS Apple Silicon
+            runner: macos-15-intel
+            goos: darwin
+            goarch: arm64
+            executable: WhisperGUI
+            artifact: whispergui-darwin-arm64
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o dist/${{ matrix.executable }} .
+
+      - name: Upload compiled executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.executable }}
+          if-no-files-found: error
+          retention-days: 7

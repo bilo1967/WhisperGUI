@@ -1,1 +1,109 @@
-#empty
+name: Windows release packages
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      WHISPER_TAG: b5454
+      WHISPER_VERSION: 1.9.5
+      FFMPEG_VERSION: 8.1.2
+      FFMPEG_URL: https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Windows resources
+        run: go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --out rsrc
+      - name: Build Windows GUI
+        run: go build -trimpath -ldflags="-H=windowsgui" -o WhisperGUI.exe .
+      - name: Download fixed runtimes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force download, whisper-src, ffmpeg-src | Out-Null
+          $release = gh api "repos/ggml-org/whisper.cpp/releases/tags/$env:WHISPER_TAG" | ConvertFrom-Json
+          $assets = @($release.assets | Where-Object { $_.name -match '^whisper-bin-win-cuda-12\.4(\.0)?-x64\.zip$' })
+          if ($assets.Count -ne 1) { throw "Expected one CUDA 12.4 x64 asset; found $($assets.Count). Available: $($release.assets.name -join ', ')" }
+          $asset = $assets[0]
+          gh release download $env:WHISPER_TAG --repo ggml-org/whisper.cpp --pattern $asset.name --dir download
+          if ($LASTEXITCODE -ne 0) { throw 'whisper download failed' }
+          $whisperFile = Join-Path download $asset.name
+          $whisperHash = (Get-FileHash $whisperFile -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($asset.digest -and $asset.digest.StartsWith('sha256:') -and $whisperHash -ne $asset.digest.Substring(7).ToLowerInvariant()) { throw 'whisper checksum mismatch' }
+          Expand-Archive -LiteralPath $whisperFile -DestinationPath whisper-src
+          Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile download/ffmpeg.zip
+          $checksumURL = "$($env:FFMPEG_URL).sha256"
+          $check = (Invoke-WebRequest -Uri $checksumURL).Content
+          $match = [regex]::Match([string]$check, '(?i)\b[0-9a-f]{64}\b')
+          if (-not $match.Success) { throw 'FFmpeg SHA256 checksum missing' }
+          $ffmpegHash = (Get-FileHash download/ffmpeg.zip -Algorithm SHA256).Hash
+          if ($ffmpegHash -ne $match.Value) { throw 'FFmpeg checksum mismatch' }
+          Expand-Archive -LiteralPath download/ffmpeg.zip -DestinationPath ffmpeg-src
+          @("whisper.cpp $env:WHISPER_VERSION (binary tag $env:WHISPER_TAG)", "whisper asset: $($asset.name)", "whisper SHA256: $whisperHash", "FFmpeg $env:FFMPEG_VERSION from gyan.dev", "FFmpeg URL: $env:FFMPEG_URL", "FFmpeg SHA256: $ffmpegHash") | Set-Content download/RUNTIME-VERSIONS.txt
+      - name: Assemble the two ZIP archives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $common = @('whisper-cli.exe','whisper.dll','ggml.dll','ggml-base.dll','SDL2.dll','ggml-cpu-alderlake.dll','ggml-cpu-cannonlake.dll','ggml-cpu-cascadelake.dll','ggml-cpu-haswell.dll','ggml-cpu-icelake.dll','ggml-cpu-sandybridge.dll','ggml-cpu-skylakex.dll','ggml-cpu-sse42.dll','ggml-cpu-x64.dll')
+          $cuda = @('nvrtc-builtins64_124.dll','cublas64_12.dll','cublasLt64_12.dll','cudart64_12.dll','ggml-cuda.dll','nvblas64_12.dll','nvrtc64_120_0.dll')
+          function FindOne([string]$folder,[string]$name) {
+            $files = @(Get-ChildItem -LiteralPath $folder -File -Recurse | Where-Object Name -EQ $name)
+            if ($files.Count -ne 1) { throw "Expected one $name in $folder; found $($files.Count)" }
+            return $files[0].FullName
+          }
+          foreach ($type in @('cpu','cuda')) {
+            New-Item -ItemType Directory -Force "package-$type/bin" | Out-Null
+            Copy-Item WhisperGUI.exe "package-$type/WhisperGUI.exe"
+            Copy-Item LICENSE "package-$type/LICENSE-WhisperGUI.txt"
+            Copy-Item download/RUNTIME-VERSIONS.txt "package-$type/RUNTIME-VERSIONS.txt"
+          }
+          foreach ($name in $common) {
+            $source = FindOne whisper-src $name
+            Copy-Item $source "package-cpu/bin/$name"
+            Copy-Item $source "package-cuda/bin/$name"
+          }
+          foreach ($name in $cuda) {
+            Copy-Item (FindOne whisper-src $name) "package-cuda/bin/$name"
+          }
+          $ffmpeg = FindOne ffmpeg-src 'ffmpeg.exe'
+          foreach ($type in @('cpu','cuda')) {
+            Copy-Item $ffmpeg "package-$type/bin/ffmpeg.exe"
+            @('WhisperGUI: MIT (LICENSE-WhisperGUI.txt)','whisper.cpp: MIT, https://github.com/ggml-org/whisper.cpp','FFmpeg from gyan.dev: GPLv3, https://www.gyan.dev/ffmpeg/builds/','For redistributing FFmpeg, provide applicable notices, source availability and license terms.','CUDA package also contains components subject to NVIDIA license terms.') | Set-Content "package-$type/THIRD-PARTY-NOTICES.txt"
+          }
+          $version = ([regex]::Match((Get-Content main.go -Raw), 'const appVersion = "([^"]+)"')).Groups[1].Value
+          if (-not $version) { throw 'Unable to read appVersion' }
+          foreach ($type in @('cpu','cuda')) {
+            $name = "WhisperGUI-$version-windows-x64-$type.zip"
+            Compress-Archive -Path "package-$type/*" -DestinationPath $name -CompressionLevel Optimal
+          }
+          Get-ChildItem -File WhisperGUI-*-windows-x64-*.zip | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $(Split-Path $_.Path -Leaf)" } | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-cpu-and-cuda-zips
+          path: |
+            WhisperGUI-*-windows-x64-*.zip
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Create draft release on version tags only
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" --draft --title "WhisperGUI ${{ github.ref_name }}" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          gh release upload "${{ github.ref_name }}" WhisperGUI-*-windows-x64-*.zip SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

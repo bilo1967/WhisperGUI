@@ -89,12 +89,28 @@ jobs:
             Compress-Archive -Path "package-$type/*" -DestinationPath $name -CompressionLevel Optimal
           }
           Get-ChildItem -File WhisperGUI-*-windows-x64-*.zip | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $(Split-Path $_.Path -Leaf)" } | Set-Content SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows CPU ZIP
+        uses: actions/upload-artifact@v7
         with:
-          name: windows-cpu-and-cuda-zips
-          path: |
-            WhisperGUI-*-windows-x64-*.zip
-            SHA256SUMS.txt
+          name: windows-x64-cpu
+          path: WhisperGUI-*-windows-x64-cpu.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Windows CUDA ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64-cuda
+          path: WhisperGUI-*-windows-x64-cuda.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-sha256sums
+          path: SHA256SUMS.txt
+          archive: false
           if-no-files-found: error
           retention-days: 14
       - name: Create draft release on version tags only

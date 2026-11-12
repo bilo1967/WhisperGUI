@@ -1,0 +1,129 @@
+name: Package macOS
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+            cmake_arch: x86_64
+            ffmpeg_url: https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip
+          - runner: macos-15
+            arch: arm64
+            cmake_arch: arm64
+            ffmpeg_url: https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip
+    env:
+      WHISPER_TAG: v1.9.5
+      FFMPEG_VERSION: 9.0.2
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - name: Checkout WhisperGUI
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Build WhisperGUI
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p package/bin
+          go build -trimpath -o package/WhisperGUI .
+          chmod +x package/WhisperGUI
+      - name: Checkout pinned whisper.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: v1.9.5
+          path: whisper-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Configure whisper-cli
+        run: |
+          cmake -S whisper-src -B whisper-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON \
+            -DGGML_NATIVE=OFF \
+            -DWHISPER_BUILD_TESTS=OFF
+      - name: Compile whisper-cli
+        run: cmake --build whisper-build --config Release --target whisper-cli -j 3
+      - name: Verify whisper-cli
+        run: |
+          set -euo pipefail
+          cli="$(find whisper-build -type f -name whisper-cli | head -n 1)"
+          test -n "$cli" && test -f "$cli"
+          "$cli" --version
+          otool -L "$cli"
+          cp "$cli" package/bin/whisper-cli
+          chmod +x package/bin/whisper-cli
+      - name: Download pinned FFmpeg and verify checksum
+        env:
+          FFMPEG_URL: ${{ matrix.ffmpeg_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p ffmpeg-extracted
+          curl -fLsS --retry 3 "$FFMPEG_URL" -o ffmpeg.zip
+          curl -fLsS --retry 3 "$FFMPEG_URL.sha256" -o ffmpeg.sha256
+          expected="$(grep -Eo '[[:xdigit:]]{64}' ffmpeg.sha256 | head -n 1 | tr '[:upper:]' '[:lower:]')"
+          actual="$(shasum -a 256 ffmpeg.zip | awk '{print $1}')"
+          test -n "$expected" && test "$expected" = "$actual" || { echo 'FFmpeg checksum mismatch'; exit 1; }
+          unzip -q ffmpeg.zip -d ffmpeg-extracted
+          ffmpeg="$(find ffmpeg-extracted -type f -name ffmpeg | head -n 1)"
+          test -n "$ffmpeg" && test -f "$ffmpeg"
+          chmod +x "$ffmpeg"
+          "$ffmpeg" -version | head -n 1
+          otool -L "$ffmpeg"
+          cp "$ffmpeg" package/bin/ffmpeg
+          chmod +x package/bin/ffmpeg
+          printf 'whisper.cpp: %s\nFFmpeg: %s\nFFmpeg source: %s\nFFmpeg SHA256: %s\n' \
+            "$WHISPER_TAG" "$FFMPEG_VERSION" "$FFMPEG_URL" "$actual" > package/RUNTIME-VERSIONS.txt
+      - name: Check binary architectures
+        run: |
+          set -euo pipefail
+          expected="${{ matrix.cmake_arch }}"
+          for binary in package/WhisperGUI package/bin/whisper-cli package/bin/ffmpeg; do
+            file "$binary"
+            lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected"
+          done
+      - name: Create portable ZIP
+        run: |
+          set -euo pipefail
+          cp LICENSE package/LICENSE-WhisperGUI.txt
+          cp whisper-src/LICENSE package/LICENSE-whisper.cpp.txt
+          cat > package/THIRD-PARTY-NOTICES.txt <<'EOF'
+          WhisperGUI: MIT (LICENSE-WhisperGUI.txt).
+          whisper.cpp: MIT (LICENSE-whisper.cpp.txt).
+          FFmpeg: https://ffmpeg.org/
+          Binary from https://ffmpeg.martin-riedl.de/
+          Redistribution must comply with applicable FFmpeg and dependency licenses.
+          EOF
+          version="$(sed -n 's/^const appVersion = "\([^"]*\)".*/\1/p' main.go)"
+          test -n "$version"
+          archive="WhisperGUI-$version-macos-${{ matrix.arch }}.zip"
+          (cd package && zip -q -r -y "../$archive" .)
+          unzip -l "$archive"
+          shasum -a 256 "$archive"
+      - name: Upload macOS ZIP without an outer ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          path: WhisperGUI-*-macos-${{ matrix.arch }}.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14

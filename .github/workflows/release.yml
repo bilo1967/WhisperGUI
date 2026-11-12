@@ -1,4 +1,4 @@
-name: Windows release packages
+name: Package Windows
 on:
   workflow_dispatch:
   push:

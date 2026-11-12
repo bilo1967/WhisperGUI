@@ -22,7 +22,9 @@ func detectToolVersions(p Paths) toolVersionInfo {
 func readToolVersion(path, flag, prefix string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, flag).CombinedOutput()
+	cmd := exec.CommandContext(ctx, path, flag)
+	prepareProcess(cmd)
+	out, err := cmd.CombinedOutput()
 	// Some builds print --version to stderr; CombinedOutput captures both.
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)

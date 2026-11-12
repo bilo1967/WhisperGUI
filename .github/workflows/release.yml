@@ -22,6 +22,9 @@ jobs:
           cache: true
       - name: Test
         run: go test ./...
+      - name: Sync Windows version metadata
+        shell: pwsh
+        run: ./scripts/sync-winres.ps1
       - name: Windows resources
         run: go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --out rsrc
       - name: Build Windows GUI

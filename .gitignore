@@ -22,3 +22,6 @@
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated Windows resource objects
+/rsrc_windows_*.syso

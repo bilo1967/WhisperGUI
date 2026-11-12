@@ -58,7 +58,20 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Build
+      - name: Generate Windows resources
+        if: runner.os == 'Windows'
+        run: go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --out rsrc
+
+      - name: Build Windows GUI executable
+        if: runner.os == 'Windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags="-H=windowsgui" -o dist/${{ matrix.executable }} .
+
+      - name: Build Unix executable
+        if: runner.os != 'Windows'
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}

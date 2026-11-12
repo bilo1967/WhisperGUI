@@ -13,9 +13,11 @@ type toolVersionInfo struct {
 }
 
 func detectToolVersions(p Paths) toolVersionInfo {
+	// Temporary diagnostic: do not launch external executables during startup.
+	// Restore version probing after identifying the Windows console flashes.
 	return toolVersionInfo{
-		Whisper: readToolVersion(p.Whisper, "--version", "whisper.cpp version:"),
-		FFmpeg:  readToolVersion(p.FFmpeg, "-version", "ffmpeg version"),
+		Whisper: "TEST (version detection disabled)",
+		FFmpeg:  "TEST (version detection disabled)",
 	}
 }
 

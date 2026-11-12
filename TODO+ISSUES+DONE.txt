@@ -7,6 +7,7 @@ TODO
 - Validate WebSocket lifecycle across sleep/resume and multiple tabs on Windows/macOS/Linux.
 - Validate on macOS and Linux, including native file dialogs and packaging.
 - Consider OpenVINO on supported Intel hardware (not planned for initial builds).
+- Later: process more files (batch).
 - Later: application update notification through a JSON manifest on whisper.ditlab.it.
 - Later: improve installer and distribution signing for open source release.
 

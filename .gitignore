@@ -1,0 +1,24 @@
+# Go builds and test output
+/WhisperGUI
+/WhisperGUI.exe
+/WhisperGUI-debug.exe
+*.test
+*.out
+*.prof
+
+# Downloaded runtimes and models
+/bin/
+/models/
+*.gguf
+*.bin
+
+# Local runtime state
+/config.yaml
+/install.yaml
+/portable.flag
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

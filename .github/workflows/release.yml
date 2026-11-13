@@ -26,9 +26,9 @@ jobs:
         shell: pwsh
         run: ./scripts/sync-winres.ps1
       - name: Windows resources
-        run: go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --out rsrc
+        run: go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --out src/rsrc
       - name: Build Windows GUI
-        run: go build -trimpath -ldflags="-H=windowsgui" -o WhisperGUI.exe .
+        run: go build -trimpath -ldflags="-H=windowsgui" -o WhisperGUI.exe ./src
       - name: Download fixed runtimes
         shell: pwsh
         env:
@@ -85,7 +85,7 @@ jobs:
             Copy-Item $ffmpeg "package-$type/bin/ffmpeg.exe"
             @('WhisperGUI: MIT (LICENSE-WhisperGUI.txt)','whisper.cpp: MIT, https://github.com/ggml-org/whisper.cpp','FFmpeg from gyan.dev: GPLv3, https://www.gyan.dev/ffmpeg/builds/','For redistributing FFmpeg, provide applicable notices, source availability and license terms.','CUDA package also contains components subject to NVIDIA license terms.') | Set-Content "package-$type/THIRD-PARTY-NOTICES.txt"
           }
-          $version = ([regex]::Match((Get-Content main.go -Raw), 'const appVersion = "([^"]+)"')).Groups[1].Value
+          $version = ([regex]::Match((Get-Content src/main.go -Raw), 'const appVersion = "([^"]+)"')).Groups[1].Value
           if (-not $version) { throw 'Unable to read appVersion' }
           foreach ($type in @('cpu','cuda')) {
             $name = "WhisperGUI-$version-windows-x64-$type.zip"

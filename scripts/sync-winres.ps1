@@ -1,8 +1,8 @@
-# Keep Windows resources consistent with the version in main.go.
+# Keep Windows resources consistent with the version in src/main.go.
 $ErrorActionPreference = 'Stop'
-$source = Get-Content -LiteralPath 'main.go' -Raw
+$source = Get-Content -LiteralPath 'src/main.go' -Raw
 $match = [regex]::Match($source, '(?m)^const\s+appVersion\s*=\s*"(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"')
-if (-not $match.Success) { throw 'Cannot read appVersion from main.go' }
+if (-not $match.Success) { throw 'Cannot read appVersion from src/main.go' }
 $parts = @($match.Groups['version'].Value.Split('.'))
 if ($parts.Count -eq 3) { $parts += '0' }
 if ($parts.Count -ne 4) { throw "Unsupported version: $($match.Groups['version'].Value)" }

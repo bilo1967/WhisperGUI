@@ -41,7 +41,7 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           mkdir -p package/bin
-          go build -trimpath -o package/WhisperGUI .
+          go build -trimpath -o package/WhisperGUI ./src
           chmod +x package/WhisperGUI
       - name: Checkout pinned whisper.cpp
         uses: actions/checkout@v4
@@ -114,7 +114,7 @@ jobs:
           Binary from https://ffmpeg.martin-riedl.de/
           Redistribution must comply with applicable FFmpeg and dependency licenses.
           EOF
-          version="$(sed -n 's/^const appVersion = "\([^"]*\)".*/\1/p' main.go)"
+          version="$(sed -n 's/^const appVersion = "\([^"]*\)".*/\1/p' src/main.go)"
           test -n "$version"
           archive="WhisperGUI-$version-macos-${{ matrix.arch }}.zip"
           # The portable edition keeps configuration and models beside the executable.
@@ -189,6 +189,31 @@ jobs:
         with:
           name: macos-${{ matrix.arch }}-app
           path: WhisperGUI-*-macos-${{ matrix.arch }}-app.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+  sources:
+    name: Complete source ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout WhisperGUI
+        uses: actions/checkout@v4
+      - name: Create source ZIP including winres
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^const appVersion = "\([^"]*\)".*/\1/p' src/main.go)"
+          test -n "$version"
+          archive="WhisperGUI-$version-source.zip"
+          git archive --format=zip --prefix="WhisperGUI-$version-source/" HEAD -o "$archive"
+          unzip -l "$archive" | grep -F 'winres/winres.json'
+          unzip -l "$archive" | grep -F 'winres/icon.png'
+          unzip -l "$archive" | grep -F 'src/main.go'
+      - name: Upload source ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: source
+          path: WhisperGUI-*-source.zip
           archive: false
           if-no-files-found: error
           retention-days: 14

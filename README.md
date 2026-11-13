@@ -27,23 +27,23 @@ On Windows, build a console-enabled executable for debugging:
 
 ```powershell
 go mod tidy
-go build -o WhisperGUI-debug.exe .
+go build -o WhisperGUI-debug.exe ./src
 ```
 
 To build without a console window:
 
 ```powershell
-go build -ldflags="-H=windowsgui" -o WhisperGUI.exe .
+go build -ldflags="-H=windowsgui" -o WhisperGUI.exe ./src
 ```
 
 On macOS or Linux:
 
 ```sh
 go mod tidy
-go build -o WhisperGUI .
+go build -o WhisperGUI ./src
 ```
 
-The Go build embeds the contents of `web/`. The Windows executable icon and version metadata are defined in `winres/`; generating Windows resources with `go-winres` is a separate build step.
+The Go build embeds the contents of `src/web/`. The Windows executable icon and version metadata are defined in `winres/`; generating Windows resources with `go-winres` is a separate build step.
 
 ## Runtime requirements
 

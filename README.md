@@ -59,7 +59,7 @@ Download the ZIP matching your Mac: **arm64** for Apple Silicon or **amd64** for
 
 1. Download the `-app.zip` release package and extract it.
 2. Move `WhisperGUI.app` to **Applications**, or another preferred folder.
-3. Double-click `WhisperGUI.app` in Finder. The user interface opens in your browser; Terminal is not needed.
+3. Double-click `WhisperGUI.app` in Finder. The user interface opens in your browser.
 4. Because the app is not yet signed and notarized by Apple, macOS may block its first launch. If you trust the downloaded copy, open **System Settings > Privacy & Security**, scroll to **Security**, select **Open Anyway** for WhisperGUI and confirm. The option appears after you first attempt to open the app.
 
 If that option is unavailable or does not work, and you have verified the source of the download, open Terminal and remove the quarantine attribute only from the application:

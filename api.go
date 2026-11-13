@@ -24,7 +24,11 @@ func (a *application) listModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(names)
-	jsonReply(w, map[string]any{"models": names})
+	translationSupported := make(map[string]bool, len(names))
+	for _, name := range names {
+		translationSupported[name] = modelSupportsTranslation(name)
+	}
+	jsonReply(w, map[string]any{"models": names, "translation_supported": translationSupported})
 }
 func jsonReply(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -53,6 +57,10 @@ func (a *application) startJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Model == "" || req.Model != filepath.Base(req.Model) || !strings.HasSuffix(strings.ToLower(req.Model), ".bin") {
 		http.Error(w, "Invalid model", 400)
+		return
+	}
+	if req.Translate && !modelSupportsTranslation(req.Model) {
+		http.Error(w, "The selected model does not support translation to English", http.StatusBadRequest)
 		return
 	}
 	a.selectedMu.Lock()
@@ -94,6 +102,18 @@ func (a *application) startJob(w http.ResponseWriter, r *http.Request) {
 	go a.runJob(req)
 	jsonReply(w, map[string]string{"status": "started"})
 }
+// clearLog clears the event backlog without stopping any running job.
+func (a *application) clearLog(w http.ResponseWriter, r *http.Request) {
+	if !a.authorized(r) {
+		http.Error(w, "Non autorizzato", http.StatusForbidden)
+		return
+	}
+	a.job.mu.Lock()
+	a.job.history = nil
+	a.job.mu.Unlock()
+	jsonReply(w, map[string]string{"status": "ok"})
+}
+
 func (a *application) stopJob(w http.ResponseWriter, r *http.Request) {
 	if !a.authorized(r) {
 		http.Error(w, "Non autorizzato", 403)

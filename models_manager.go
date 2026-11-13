@@ -17,6 +17,13 @@ import (
 
 type catalogEntry struct{ ID, Label, Filename, Repository string }
 
+func modelSupportsTranslation(filename string) bool {
+	name := strings.ToLower(strings.TrimSuffix(filepath.Base(filename), ".bin"))
+	// Whisper Turbo is trained for transcription, not translation.
+	// English-only models cannot translate non-English input.
+	return !strings.Contains(name, "turbo") && !strings.HasSuffix(name, ".en") && !strings.Contains(name, ".en-")
+}
+
 var officialModels = []string{"tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v1", "large-v2", "large-v3", "large-v3-turbo", "large-v3-turbo-q5_0"}
 
 func entries() []catalogEntry {
@@ -45,6 +52,7 @@ type modelView struct {
 	LocalSize  int64  `json:"local_size"`
 	RemoteSize int64  `json:"remote_size"`
 	Status     string `json:"status"`
+	CanTranslate bool `json:"translation_supported"`
 }
 type modelTask struct {
 	mu       sync.Mutex
@@ -104,7 +112,7 @@ func (a *application) modelCatalog(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(i int, e catalogEntry) {
 			defer wg.Done()
-			v := modelView{ID: e.ID, Label: e.Label, Filename: e.Filename, Status: "absent"}
+			v := modelView{ID: e.ID, Label: e.Label, Filename: e.Filename, Status: "absent", CanTranslate: modelSupportsTranslation(e.Filename)}
 			path := filepath.Join(a.paths.ModelsDir, e.Filename)
 			if f, err := os.Stat(path); err == nil && !f.IsDir() {
 				v.LocalSize = f.Size()

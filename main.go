@@ -105,6 +105,7 @@ func main() {
 	mux.HandleFunc("POST /api/stop", a.stopJob)
 	mux.HandleFunc("POST /api/result", a.resultAction)
 	mux.HandleFunc("GET /api/events", a.events)
+	mux.HandleFunc("POST /api/log/clear", a.clearLog)
 	server := &http.Server{
 		Handler:           a.checkHost(mux),
 		ReadHeaderTimeout: 5 * time.Second,

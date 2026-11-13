@@ -1,15 +1,21 @@
 const token=location.hash.slice(1),headers={'X-Session-Token':token};let file='',busy=false;
 const $=id=>document.getElementById(id);
-let eventDisconnected=false, exiting=false, preferredModel='';
+let eventDisconnected=false, exiting=false, preferredModel='', modelTranslation={};
 async function request(url,method='GET',data){const opts={method,headers:{...headers}};if(data!==undefined){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(data)}const res=await fetch(url,opts);if(!res.ok)throw Error((await res.text()).trim());return res.json()}
 function log(s){const p=$('log');p.append(document.createTextNode(s+'\n'));p.scrollTop=p.scrollHeight}
 function logNotice(s){const p=$('log'),el=document.createElement('strong');el.textContent=s;p.append(el,document.createTextNode('\n'));p.scrollTop=p.scrollHeight}
 function controls(){$('start').disabled=busy||!file||!$('model').value;$('stop').disabled=!busy;$('pick').disabled=busy}
+function syncTranslationAvailability(){
+ const model=$('model').value,unsupported=modelTranslation[model]===false;
+ $('translate').disabled=unsupported;
+ if(unsupported)$('translate').checked=false;
+ $('translation-warning').hidden=!unsupported;
+}
 function setTheme(theme){document.documentElement.dataset.theme=theme;$('theme').textContent=theme==='dark'?'☀ Light':'☾ Dark'}
 $('theme').onclick=async()=>{const before=document.documentElement.dataset.theme||'light';const next=before==='dark'?'light':'dark';setTheme(next);try{await request('/api/preferences/theme','POST',{theme:next})}catch(e){setTheme(before);log('Unable to save theme: '+e.message)}};
-async function refresh(){try{const r=await request('/api/models'),s=$('model'),old=s.value;s.replaceChildren();for(const name of r.models.filter(name=>!name.startsWith("ggml-silero-")))s.add(new Option(name,name));if(r.models.includes(old))s.value=old;else if(r.models.includes(preferredModel))s.value=preferredModel;if(!r.models.length){s.add(new Option('Click Manage models to add models',''));if(!window.noModelsNotified){logNotice('No models found (or models directory missing). Check your configuration or click Manage models to download one.');window.noModelsNotified=true}}else{window.noModelsNotified=false}controls()}catch(e){log('Models: '+e.message)}}
+async function refresh(){try{const r=await request('/api/models'),s=$('model'),old=s.value;modelTranslation=r.translation_supported||{};s.replaceChildren();for(const name of r.models.filter(name=>!name.startsWith("ggml-silero-")))s.add(new Option(name,name));if(r.models.includes(old))s.value=old;else if(r.models.includes(preferredModel))s.value=preferredModel;if(!r.models.length){s.add(new Option('Click Manage models to add models',''));if(!window.noModelsNotified){logNotice('No models found (or models directory missing). Check your configuration or click Manage models to download one.');window.noModelsNotified=true}}else{window.noModelsNotified=false}syncTranslationAvailability();controls()}catch(e){log('Models: '+e.message)}}
 $('pick').onclick=async()=>{try{const r=await request('/api/select-file','POST');if(r.status==='ok'){file=r.path;$('filename').textContent=r.name;$('filepath').textContent=' ('+r.path+')';$('fileinfo').title=r.path;controls()}}catch(e){log('File selection: '+e.message)}};
-$('refresh').onclick=openModels;$('open-models-folder').onclick=async()=>{try{await request('/api/models-folder','POST')}catch(e){$('model-admin').textContent='Unable to open models folder: '+e.message}};$('model').onchange=async()=>{controls();const model=$('model').value;if(!model)return;try{await request('/api/preferences/model','POST',{model});preferredModel=model;}catch(e){log('Unable to save selected model: '+e.message)}};
+$('refresh').onclick=openModels;$('open-models-folder').onclick=async()=>{try{await request('/api/models-folder','POST')}catch(e){$('model-admin').textContent='Unable to open models folder: '+e.message}};$('model').onchange=async()=>{syncTranslationAvailability();controls();const model=$('model').value;if(!model)return;try{await request('/api/preferences/model','POST',{model});preferredModel=model;}catch(e){log('Unable to save selected model: '+e.message)}};
 $('language').onchange=async()=>{const language=$('language').value;try{await request('/api/preferences/language','POST',{language})}catch(e){log('Unable to save selected language: '+e.message)}};
 $('start').onclick=async()=>{busy=true;controls();hideResult();$('log').textContent='';try{await request('/api/jobs','POST',{file,model:$('model').value,language:$('language').value,translate:$('translate').checked,word_timestamps:$('word-timestamps').checked,textgrid:$('textgrid').checked,cpu:$('cpu').checked,glossary_enabled:$('glossary-enabled').checked,glossary_hint:$('glossary-hint').value,carry_initial_prompt:$('carry-initial-prompt').checked,experimental_features:$('experimental-features').checked})}catch(e){busy=false;controls();log('Error: '+e.message)}};
 function hideResult(){$('result-bar').hidden=true;$('result-name').textContent=''}
@@ -21,7 +27,7 @@ async function resultAction(action){
 }
 $('result-show').onclick=()=>resultAction('show');
 $('result-delete').onclick=()=>resultAction('delete');
-$('clear-log').onclick=()=>{$('log').textContent=''};
+$('clear-log').onclick=async()=>{$('log').textContent='';try{await request('/api/log/clear','POST')}catch(e){log('Clear log: '+e.message)}};
 $('textgrid').onchange=()=>{if($('textgrid').checked)$('word-timestamps').checked=true};
 $('word-timestamps').onchange=()=>{if(!$('word-timestamps').checked)$('textgrid').checked=false};
 async function copyPanel(id,buttonId){const button=$(buttonId),label=button.textContent;try{await navigator.clipboard.writeText($(id).textContent);button.textContent='Copied';setTimeout(()=>{button.textContent=label},1400)}catch(e){log('Copy failed: '+e.message)}}

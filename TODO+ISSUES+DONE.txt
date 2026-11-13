@@ -3,9 +3,13 @@ Updated: 2026-11-12 | Version: 0.6.27
 
 TODO
 ----
-- Add Advanced Settings UI for disconnect grace period (already configurable in YAML).
 - Validate WebSocket lifecycle across sleep/resume and multiple tabs on Windows/macOS/Linux.
 - Validate on macOS and Linux, including native file dialogs and packaging.
+- Add Advanced Settings UI for disconnect grace period (already configurable in YAML).
+- Portable packages
+- Installation packages for Windows (InnoSetup), with removal of previous Lazarus version
+- Installation packages for Mac
+- Installation packages for Linux
 - Consider OpenVINO on supported Intel hardware (not planned for initial builds).
 - Later: process more files (batch).
 - Later: application update notification through a JSON manifest on whisper.ditlab.it.

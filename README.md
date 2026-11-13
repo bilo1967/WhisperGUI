@@ -53,7 +53,7 @@ Use binaries for the target operating system and CPU architecture. On Linux, a c
 
 ## Configuration and model storage
 
-WhisperGUI creates its configuration when run. It supports per-user, system-wide and portable installations; a `portable.flag` beside the executable selects portable mode. In portable mode, models can be stored alongside the application. The **Info** and **Diagnostics** panels show the actual paths used on the current machine.
+WhisperGUI creates its configuration when run. It supports per-user, system-wide and portable installations; a `portable.flag` empty file beside the executable selects portable mode. In portable mode, models can be stored alongside the application. The **Info** and **Diagnostics** panels show the actual paths used on the current machine.
 
 For shared/system-wide installations, managing models may require administrator privileges. Models can also be installed through **Manage models**.
 

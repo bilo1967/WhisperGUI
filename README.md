@@ -2,7 +2,7 @@
 
 WhisperGUI is a lightweight, cross-platform graphical interface for local audio and video transcription using [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and FFmpeg.
 
-**Current version: 0.6.27** · [Change history](CHANGES.md) · [Open issues and planned work](TODO+ISSUES+DONE.txt)
+**Current version: 0.6.28** · [Change history](CHANGES.md) · [Open issues and planned work](TODO+ISSUES+DONE.txt)
 
 ## Features
 
@@ -50,6 +50,31 @@ The Go build embeds the contents of `web/`. The Windows executable icon and vers
 Place the matching **`whisper-cli`** and **FFmpeg** executables in a `bin/` directory next to WhisperGUI. On Windows, include the supporting whisper.cpp DLLs from the **same official build**. For the CPU-only package, the tested CUDA-capable `whisper-cli.exe` can run without the NVIDIA/CUDA DLLs; for CUDA acceleration, include those DLLs.
 
 Use binaries for the target operating system and CPU architecture. On Linux, a compatible native file-dialog utility (such as Zenity) is also required. The runtime bundles are not included in this source repository.
+
+## Installing on macOS
+
+Download the ZIP matching your Mac: **arm64** for Apple Silicon or **amd64** for Intel.
+
+### App bundle
+
+1. Download the `-app.zip` release package and extract it.
+2. Move `WhisperGUI.app` to **Applications**, or another preferred folder.
+3. Double-click `WhisperGUI.app` in Finder. The user interface opens in your browser; Terminal is not needed.
+4. Because the app is not yet signed and notarized by Apple, macOS may block its first launch. If you trust the downloaded copy, open **System Settings > Privacy & Security**, scroll to **Security**, select **Open Anyway** for WhisperGUI and confirm. The option appears after you first attempt to open the app.
+
+If that option is unavailable or does not work, and you have verified the source of the download, open Terminal and remove the quarantine attribute only from the application:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/WhisperGUI.app"
+```
+
+Adjust the path if you installed the application elsewhere. This is a targeted alternative, **not** a reason to disable macOS security checks globally. Administrator privileges are normally unnecessary when you own the app.
+
+### Portable ZIP
+
+Alternatively, extract the ZIP without `-app` in its name. Keep `WhisperGUI`, `bin/` and `portable.flag` in the same directory and run `./WhisperGUI` from Terminal there. Portable mode keeps configuration and models alongside the executable. If macOS blocks the portable executable, allow it through Privacy & Security; if necessary, after verifying the download, remove the quarantine attribute only from the extracted WhisperGUI directory.
+
+The app bundle instead saves configuration and models in your user directories. Neither macOS package is currently signed or notarized.
 
 ## Configuration and model storage
 

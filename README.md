@@ -55,6 +55,8 @@ Use binaries for the target operating system and CPU architecture. On Linux, a c
 
 Download the ZIP matching your Mac: **arm64** for Apple Silicon or **amd64** for Intel.
 
+**Upgrading from the previous `whisperGUI.app`:** Before installing this version, quit the old application and move the entire old `whisperGUI.app` bundle to the Trash. The previous release stored its models inside the application bundle; those models must be deleted with it, **not copied into the new installation**. The model format and management have changed. Empty the Trash when you are ready to permanently remove the old app and its bundled models. On most Macs, `whisperGUI.app` and `WhisperGUI.app` refer to the same filename, regardless of capitalization. Install the new bundle only after removing the old one.
+
 ### App bundle
 
 1. Download the `-app.zip` release package and extract it.

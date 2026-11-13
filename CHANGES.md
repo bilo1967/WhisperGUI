@@ -2,6 +2,13 @@
 
 Release history for WhisperGUI. The [README](README.md) describes the **current** application rather than historical revisions.
 
+## 0.6.28
+- Fixed **Clear log** so cleared event history is not replayed after reconnection.
+- Disabled English translation for unsupported models, including large-v3-turbo and English-only variants; added a compact note for multilingual models without translation support in Model Manager.
+- Removed the extra translation warning beside the transcription options.
+- Fixed hidden Windows subprocess version checks and synchronized Windows executable version metadata with the application version.
+- Added manual portable release packaging for Windows and macOS, plus macOS .app bundles for Intel and Apple Silicon.
+
 ## 0.6.27
 - Styled **Show in folder** as a solid green button.
 - Persisted and restored the selected transcription language.

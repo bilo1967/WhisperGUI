@@ -24,7 +24,7 @@ import (
 	"github.com/ncruces/zenity"
 )
 
-const appVersion = "0.6.27"
+const appVersion = "0.6.28"
 
 //go:embed web/*
 var webFiles embed.FS

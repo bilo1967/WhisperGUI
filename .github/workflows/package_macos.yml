@@ -102,7 +102,7 @@ jobs:
             file "$binary"
             lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected"
           done
-      - name: Create portable ZIP
+      - name: Create portable ZIP and macOS app bundle
         run: |
           set -euo pipefail
           cp LICENSE package/LICENSE-WhisperGUI.txt
@@ -117,13 +117,60 @@ jobs:
           version="$(sed -n 's/^const appVersion = "\([^"]*\)".*/\1/p' main.go)"
           test -n "$version"
           archive="WhisperGUI-$version-macos-${{ matrix.arch }}.zip"
+          # The portable edition keeps configuration and models beside the executable.
+          touch package/portable.flag
           (cd package && zip -q -r -y "../$archive" .)
+
+          # A Finder-launchable app must have a CFBundleExecutable and Info.plist.
+          # Keep the same bin/ layout relative to the executable as the portable edition.
+          app="WhisperGUI.app"
+          mkdir -p "$app/Contents/MacOS/bin" "$app/Contents/Resources"
+          cp package/WhisperGUI "$app/Contents/MacOS/WhisperGUI"
+          cp package/bin/whisper-cli package/bin/ffmpeg "$app/Contents/MacOS/bin/"
+          cp package/LICENSE-WhisperGUI.txt package/LICENSE-whisper.cpp.txt \
+            package/THIRD-PARTY-NOTICES.txt package/RUNTIME-VERSIONS.txt "$app/Contents/Resources/"
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>WhisperGUI</string>
+            <key>CFBundleIdentifier</key><string>io.github.bilo1967.WhisperGUI</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>WhisperGUI</string>
+            <key>CFBundleDisplayName</key><string>WhisperGUI</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>$MACOSX_DEPLOYMENT_TARGET</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$app/Contents/Info.plist"
+          test -x "$app/Contents/MacOS/WhisperGUI"
+          test -x "$app/Contents/MacOS/bin/whisper-cli"
+          test -x "$app/Contents/MacOS/bin/ffmpeg"
+          appArchive="WhisperGUI-$version-macos-${{ matrix.arch }}-app.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$appArchive"
+
           unzip -l "$archive"
-          shasum -a 256 "$archive"
-      - name: Upload macOS ZIP without an outer ZIP
+          unzip -l "$appArchive"
+          shasum -a 256 "$archive" "$appArchive"
+      - name: Upload portable macOS ZIP
         uses: actions/upload-artifact@v7
         with:
+          name: macos-${{ matrix.arch }}-portable
           path: WhisperGUI-*-macos-${{ matrix.arch }}.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload macOS app bundle ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}-app
+          path: WhisperGUI-*-macos-${{ matrix.arch }}-app.zip
           archive: false
           if-no-files-found: error
           retention-days: 14

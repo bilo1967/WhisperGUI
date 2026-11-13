@@ -37,12 +37,31 @@ func (a *application) resultAction(w http.ResponseWriter, r *http.Request) {
 	}
 	// Keep the result locked while the action is performed, to prevent a race
 	// with the start of a new transcription.
+	if info, err := os.Stat(path); os.IsNotExist(err) {
+		a.job.archive = ""
+		a.job.mu.Unlock()
+		a.job.emit(event{Type: "archive-deleted", Message: "Archive " + filepath.Base(path) + " is no longer available."})
+		jsonReply(w, map[string]string{"status": "missing"})
+		return
+	} else if err != nil || !info.Mode().IsRegular() {
+		a.job.mu.Unlock()
+		http.Error(w, "Unable to access archive", http.StatusInternalServerError)
+		return
+	}
 	if req.Action == "delete" {
 		err := os.Remove(path)
 		if err == nil {
 			a.job.archive = ""
 		}
 		a.job.mu.Unlock()
+		if os.IsNotExist(err) {
+			a.job.mu.Lock()
+			a.job.archive = ""
+			a.job.mu.Unlock()
+			a.job.emit(event{Type: "archive-deleted", Message: "Archive " + filepath.Base(path) + " is no longer available."})
+			jsonReply(w, map[string]string{"status": "missing"})
+			return
+		}
 		if err != nil {
 			http.Error(w, "Unable to delete archive: "+err.Error(), 500)
 			return

@@ -1,14 +1,14 @@
 WhisperGUI - TODO / ISSUES / DONE
-Updated: 2026-11-12 | Version: 0.6.27
+Updated: 2026-11-13 | Version: 0.6.28
 
 TODO
 ----
 - Validate WebSocket lifecycle across sleep/resume and multiple tabs on Windows/macOS/Linux.
-- Validate on macOS and Linux, including native file dialogs and packaging.
+- Complete macOS and Linux runtime QA, including signed/unsigned distribution behavior and packaging (basic macOS functional tests completed).
 - Add Advanced Settings UI for disconnect grace period (already configurable in YAML).
-- Portable packages
+- Validate Windows and macOS portable packages; prepare and validate a Linux portable runtime package
 - Installation packages for Windows (InnoSetup), with removal of previous Lazarus version
-- Installation packages for Mac
+- Validate macOS .app bundles on Intel and Apple Silicon; consider signing and notarization
 - Installation packages for Linux
 - Consider OpenVINO on supported Intel hardware (not planned for initial builds).
 - Later: process more files (batch).
@@ -20,7 +20,7 @@ ISSUES
 - Windows native file picker focus/ownership: attach-to-browser approach can behave unpredictably; keep under observation and prefer safe, isolated solution.
 - Brief console-window flicker may still occur at startup on Windows.
 - WebSocket closure needs cross-platform runtime verification; browser sleep/resume may delay connection loss detection.
-- Full Windows/macOS/Linux build and runtime QA remains to be performed for v0.6.6.
+- Complete cross-platform build/runtime verification for the current version (0.6.28).
 
 DONE
 ----
@@ -75,3 +75,6 @@ DONE 0.6.25: Simplify archive actions to Show in folder / Delete; allow unsaved 
 DONE 0.6.26: User-provided ZIP icon in output bar; green Show in folder button (light/dark theme).
 
 DONE 0.6.27: Solid green Show in folder button; persist and restore selected transcription language.
+
+DONE 0.6.28: Windows/macOS portable packaging and macOS .app workflow, source archive, compact Advanced Settings, translation compatibility, model disk usage, application data removal, and source reorganization under src/.
+DONE 0.6.28: Missing result archives now report their filename and dismiss the result bar.

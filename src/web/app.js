@@ -21,7 +21,7 @@ function hideResult(){$('result-bar').hidden=true;$('result-name').textContent='
 function showResult(path){$('result-name').textContent=path.split(/[\\/]/).pop();$('result-name').title=path;$('result-bar').hidden=false}
 async function resultAction(action){
  if(action==='delete'&&!confirm('Delete this ZIP archive? The source audio/video will not be deleted.'))return;
- try{await request('/api/result','POST',{action});if(action==='delete')hideResult()}
+ try{const response=await request('/api/result','POST',{action});if(action==='delete'||response.status==='missing')hideResult()}
  catch(e){log('Archive: '+e.message)}
 }
 $('result-show').onclick=()=>resultAction('show');

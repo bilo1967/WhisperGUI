@@ -71,8 +71,22 @@
 :root[data-theme="dark"] #result-show{background:#198754;border-color:#198754;color:#fff}
 :root[data-theme="dark"] #result-show:hover:not(:disabled){background:#157347;border-color:#146c43;color:#fff}
 
-/* Explicit application-data cleanup (all platforms). */
-.data-removal{border-top:1px solid var(--border);padding-top:10px;margin-top:8px;display:grid;justify-items:start;gap:5px}
-#remove-app-data,#confirm-remove-data{color:#a33c43;border-color:#b87579}
-:root[data-theme="dark"] #remove-app-data,:root[data-theme="dark"] #confirm-remove-data{color:#e9a4aa}
-#remove-data-dialog p{margin:7px 0 12px}
+
+/* Desktop-first advanced settings: compact fields and a single aligned action bar. */
+.settings-dialog{width:min(740px,calc(100vw - 24px));padding:13px 16px}
+.settings-dialog .dialog-head{margin-bottom:8px}
+.settings-dialog .advanced-fields{gap:5px}
+.settings-dialog .advanced-fields textarea{min-height:64px;height:70px}
+.settings-dialog .hint-options{gap:8px 22px}
+.settings-dialog .hint-help{margin-top:-2px}
+.advanced-options-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px 22px;margin:6px 0}
+.advanced-options-grid label{white-space:nowrap}
+.advanced-options-grid small{font-size:10px}
+.settings-dialog .temperature-field{padding:3px 0}
+.settings-footer{display:flex;align-items:center;justify-content:space-between;gap:15px;border-top:1px solid var(--border);margin-top:12px;padding-top:11px}
+.settings-footer-right{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-left:auto}
+.settings-footer #glossary-status{color:var(--muted);font-size:11px}
+.settings-footer button{white-space:nowrap}
+#remove-app-data{color:#a33c43;border-color:#b87579}
+:root[data-theme="dark"] #remove-app-data{color:#e9a4aa}
+@media(max-width:600px){.advanced-options-grid{grid-template-columns:1fr}.settings-footer{flex-wrap:wrap}.settings-footer-right{margin-left:auto}}

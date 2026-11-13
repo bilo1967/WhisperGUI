@@ -1,6 +1,6 @@
 const token=location.hash.slice(1),headers={'X-Session-Token':token};let file='',busy=false;
 const $=id=>document.getElementById(id);
-let eventDisconnected=false, exiting=false, preferredModel='', modelTranslation={};
+let eventDisconnected=false, exiting=false, preferredModel='', modelTranslation={}, modelStorageNotified=false;
 async function request(url,method='GET',data){const opts={method,headers:{...headers}};if(data!==undefined){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(data)}const res=await fetch(url,opts);if(!res.ok)throw Error((await res.text()).trim());return res.json()}
 function log(s){const p=$('log');p.append(document.createTextNode(s+'\n'));p.scrollTop=p.scrollHeight}
 function logNotice(s){const p=$('log'),el=document.createElement('strong');el.textContent=s;p.append(el,document.createTextNode('\n'));p.scrollTop=p.scrollHeight}
@@ -12,7 +12,7 @@ function syncTranslationAvailability(){
 }
 function setTheme(theme){document.documentElement.dataset.theme=theme;$('theme').textContent=theme==='dark'?'☀ Light':'☾ Dark'}
 $('theme').onclick=async()=>{const before=document.documentElement.dataset.theme||'light';const next=before==='dark'?'light':'dark';setTheme(next);try{await request('/api/preferences/theme','POST',{theme:next})}catch(e){setTheme(before);log('Unable to save theme: '+e.message)}};
-async function refresh(){try{const r=await request('/api/models'),s=$('model'),old=s.value;modelTranslation=r.translation_supported||{};s.replaceChildren();for(const name of r.models.filter(name=>!name.startsWith("ggml-silero-")))s.add(new Option(name,name));if(r.models.includes(old))s.value=old;else if(r.models.includes(preferredModel))s.value=preferredModel;if(!r.models.length){s.add(new Option('Click Manage models to add models',''));if(!window.noModelsNotified){logNotice('No models found (or models directory missing). Check your configuration or click Manage models to download one.');window.noModelsNotified=true}}else{window.noModelsNotified=false}syncTranslationAvailability();controls()}catch(e){log('Models: '+e.message)}}
+async function refresh(){try{const r=await request('/api/models'),s=$('model'),old=s.value;modelTranslation=r.translation_supported||{};if(!modelStorageNotified&&(r.model_count||0)>0){const mb=(r.model_bytes/1048576).toFixed(1);log('Downloaded models use '+mb+' MiB of storage. You can free up space by removing unused models in Manage models.');modelStorageNotified=true;}s.replaceChildren();for(const name of r.models.filter(name=>!name.startsWith("ggml-silero-")))s.add(new Option(name,name));if(r.models.includes(old))s.value=old;else if(r.models.includes(preferredModel))s.value=preferredModel;if(!r.models.length){s.add(new Option('Click Manage models to add models',''));if(!window.noModelsNotified){logNotice('No models found (or models directory missing). Check your configuration or click Manage models to download one.');window.noModelsNotified=true}}else{window.noModelsNotified=false}syncTranslationAvailability();controls()}catch(e){log('Models: '+e.message)}}
 $('pick').onclick=async()=>{try{const r=await request('/api/select-file','POST');if(r.status==='ok'){file=r.path;$('filename').textContent=r.name;$('filepath').textContent=' ('+r.path+')';$('fileinfo').title=r.path;controls()}}catch(e){log('File selection: '+e.message)}};
 $('refresh').onclick=openModels;$('open-models-folder').onclick=async()=>{try{await request('/api/models-folder','POST')}catch(e){$('model-admin').textContent='Unable to open models folder: '+e.message}};$('model').onchange=async()=>{syncTranslationAvailability();controls();const model=$('model').value;if(!model)return;try{await request('/api/preferences/model','POST',{model});preferredModel=model;}catch(e){log('Unable to save selected model: '+e.message)}};
 $('language').onchange=async()=>{const language=$('language').value;try{await request('/api/preferences/language','POST',{language})}catch(e){log('Unable to save selected language: '+e.message)}};
@@ -97,6 +97,25 @@ function syncHintState(){const enabled=$('glossary-enabled').checked;$('glossary
 function syncExperimentalFeatures(){const enabled=$('experimental-features').checked;$('textgrid-option').hidden=!enabled;if(!enabled)$('textgrid').checked=false;}
 function syncTemperature(){$('temperature-value').textContent=Number($('temperature').value).toFixed(1);}
 $('advanced').onclick=()=>{$('glossary-status').textContent='';$('advanceddialog').showModal()};
+$('remove-app-data').onclick=()=>{$('remove-data-models').checked=true;$('remove-data-config').checked=true;$('remove-data-status').textContent='';$('advanceddialog').close();$('remove-data-dialog').showModal()};
+$('confirm-remove-data').onclick=async()=>{
+ const models=$('remove-data-models').checked,config=$('remove-data-config').checked;
+ if(!models&&!config){$('remove-data-status').textContent='Select at least one item.';return}
+ if(!confirm('Permanently delete the selected WhisperGUI data and close the application?'))return;
+ const button=$('confirm-remove-data');button.disabled=true;
+ try{
+   await request('/api/application-data/remove','POST',{models,config,confirmation:'REMOVE'});
+   exiting=true;
+   if(clientRetry){clearTimeout(clientRetry);clientRetry=null}
+   if(clientSocket)clientSocket.close();
+   document.querySelector('main').replaceChildren();
+   const message=document.createElement('div');message.className='exit-message';
+   const heading=document.createElement('h2');heading.textContent='Application data removed.';
+   const detail=document.createElement('p');detail.textContent='WhisperGUI has closed. You can now remove the application itself.';
+   message.append(heading,detail);document.querySelector('main').append(message);
+   document.title='WhisperGUI — data removed';
+ }catch(e){button.disabled=false;$('remove-data-status').textContent='Removal failed: '+e.message}
+};
 $('glossary-enabled').onchange=syncHintState;
 $('experimental-features').onchange=syncExperimentalFeatures;
 $('temperature').oninput=syncTemperature;

@@ -70,3 +70,9 @@
 #result-show:hover:not(:disabled){background:#157347;border-color:#146c43;color:#fff}
 :root[data-theme="dark"] #result-show{background:#198754;border-color:#198754;color:#fff}
 :root[data-theme="dark"] #result-show:hover:not(:disabled){background:#157347;border-color:#146c43;color:#fff}
+
+/* Explicit application-data cleanup (all platforms). */
+.data-removal{border-top:1px solid var(--border);padding-top:10px;margin-top:8px;display:grid;justify-items:start;gap:5px}
+#remove-app-data,#confirm-remove-data{color:#a33c43;border-color:#b87579}
+:root[data-theme="dark"] #remove-app-data,:root[data-theme="dark"] #confirm-remove-data{color:#e9a4aa}
+#remove-data-dialog p{margin:7px 0 12px}

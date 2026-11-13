@@ -17,9 +17,18 @@ func (a *application) listModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	names := []string{}
+	var modelBytes int64
+	var modelCount int
 	entries, _ := os.ReadDir(a.paths.ModelsDir)
 	for _, f := range entries {
-		if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".bin") && !strings.HasPrefix(strings.ToLower(f.Name()), "ggml-silero-") {
+		if f.IsDir() || !strings.HasSuffix(strings.ToLower(f.Name()), ".bin") {
+			continue
+		}
+		if info, err := f.Info(); err == nil && info.Mode().IsRegular() {
+			modelBytes += info.Size()
+			modelCount++
+		}
+		if !strings.HasPrefix(strings.ToLower(f.Name()), "ggml-silero-") {
 			names = append(names, f.Name())
 		}
 	}
@@ -28,7 +37,7 @@ func (a *application) listModels(w http.ResponseWriter, r *http.Request) {
 	for _, name := range names {
 		translationSupported[name] = modelSupportsTranslation(name)
 	}
-	jsonReply(w, map[string]any{"models": names, "translation_supported": translationSupported})
+	jsonReply(w, map[string]any{"models": names, "translation_supported": translationSupported, "model_bytes": modelBytes, "model_count": modelCount})
 }
 func jsonReply(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

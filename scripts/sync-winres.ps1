@@ -23,3 +23,21 @@ $json = $data | ConvertTo-Json -Depth 30
     [System.Text.UTF8Encoding]::new($false)
 )
 Write-Host "Windows resource metadata synchronized to $version"
+
+# Synchronize the Inno Setup fallback version. Command-line /DAppVersion
+# remains available for local testing, but normal builds need no override.
+$installerPath = 'installer/WhisperGUI.iss'
+$installerSource = [System.IO.File]::ReadAllText((Join-Path (Get-Location) $installerPath))
+$installerVersion = $match.Groups['version'].Value
+$installerPattern = '(?m)^(\s*#define\s+AppVersion\s+)"[^"]+"'
+$replacement = '${1}"' + $installerVersion + '"'
+$updated = [regex]::Replace($installerSource, $installerPattern, $replacement)
+if ($updated -eq $installerSource -and $installerSource -notmatch ('(?m)^\s*#define\s+AppVersion\s+"' + [regex]::Escape($installerVersion) + '"')) {
+    throw "Cannot find the installer AppVersion definition in $installerPath"
+}
+[System.IO.File]::WriteAllText(
+    (Join-Path (Get-Location) $installerPath),
+    $updated,
+    [System.Text.UTF8Encoding]::new($false)
+)
+Write-Host "Inno Setup version synchronized to $installerVersion"

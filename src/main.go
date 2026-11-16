@@ -26,6 +26,28 @@ import (
 
 const appVersion = "0.6.28"
 
+
+func missingRuntimeBinaries(paths Paths) []string {
+	var missing []string
+	for _, path := range []string{paths.FFmpeg, paths.Whisper} {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			missing = append(missing, path)
+		}
+	}
+	return missing
+}
+
+func showMissingRuntimeError(paths Paths, missing []string) {
+	message := "WhisperGUI cannot start because the following required executables are missing:\n\n" +
+		strings.Join(missing, "\n") +
+		"\n\nThe application installation is incomplete. Please uninstall WhisperGUI and reinstall it using a complete installer.\n\nWhisperGUI will now close."
+	log.Print(message)
+	if err := zenity.Error(message, zenity.Title("WhisperGUI - Incomplete installation")); err != nil {
+		log.Printf("Could not display error dialog: %v", err)
+	}
+}
+
 //go:embed web/*
 var webFiles embed.FS
 
@@ -65,6 +87,10 @@ func main() {
 	cfg, paths, err := loadConfig(paths)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if missing := missingRuntimeBinaries(paths); len(missing) != 0 {
+		showMissingRuntimeError(paths, missing)
+		return
 	}
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {

@@ -74,6 +74,10 @@ func (a *application) runJob(req jobRequest) {
 	a.job.mu.Lock()
 	ctx := a.jobContext
 	a.job.mu.Unlock()
+	if missing := missingRuntimeBinaries(a.paths); len(missing) != 0 {
+		showMissingRuntimeError(a.paths, missing)
+		os.Exit(1)
+	}
 	a.job.emit(event{Type: "state", State: "converting", Message: "Converting audio with FFmpeg..."})
 	tmp, err := os.MkdirTemp("", "whispergui-*")
 	if err != nil {

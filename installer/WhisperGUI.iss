@@ -35,6 +35,8 @@ OutputBaseFilename=WhisperGUI-{#AppVersion}-windows-x64-{#Variant}-setup
 UninstallDisplayIcon={app}\{#AppExe}
 CloseApplications=yes
 RestartApplications=no
+; Same named mutex as src/instance_windows.go. Checked on install and uninstall.
+AppMutex=Local\WhisperGUI-SingleInstance
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

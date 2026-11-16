@@ -289,3 +289,77 @@ begin
     end;
   end;
 end;
+
+{ Optional user data cleanup during interactive uninstall. }
+var
+  CleanupModelsOnUninstall: Boolean;
+  CleanupConfigOnUninstall: Boolean;
+
+function InitializeUninstall(): Boolean;
+var
+  ModelsPath, ConfigPath, Prompt: String;
+  HaveModels, HaveConfig: Boolean;
+begin
+  Result := True;
+  CleanupModelsOnUninstall := False;
+  CleanupConfigOnUninstall := False;
+
+  { Never remove user data during silent uninstall (including legacy migration). }
+  if UninstallSilent then Exit;
+
+  ModelsPath := ExpandConstant('{localappdata}') + '\WhisperGUI\models';
+  ConfigPath := ExpandConstant('{userappdata}') + '\WhisperGUI\config.yaml';
+
+  HaveModels := DirExists(ModelsPath) and DirectoryHasEntries(ModelsPath);
+  HaveConfig := FileExists(ConfigPath);
+  if not HaveModels and not HaveConfig then Exit;
+
+  Prompt := 'WhisperGUI can also remove its downloaded models and settings.' + CRLF + CRLF;
+  if HaveModels then
+    Prompt := Prompt + 'Downloaded models: approximately ' +
+      GiBLabel(DirectoryBytes(ModelsPath)) + ' GiB' + CRLF;
+  if HaveConfig then
+    Prompt := Prompt + 'Application settings: config.yaml' + CRLF;
+  Prompt := Prompt + CRLF +
+    'Remove this application data as well?' + CRLF +
+    '(Choose No to keep the data for a future installation.)';
+
+  if MsgBox(Prompt, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+  begin
+    CleanupModelsOnUninstall := HaveModels;
+    CleanupConfigOnUninstall := HaveConfig;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ModelsPath, ConfigPath, ConfigDir: String;
+begin
+  if CurUninstallStep <> usPostUninstall then Exit;
+
+  if CleanupModelsOnUninstall then
+  begin
+    ModelsPath := ExpandConstant('{localappdata}') + '\WhisperGUI\models';
+    if DirExists(ModelsPath) then
+    begin
+      if not DelTree(ModelsPath, True, True, True) and DirExists(ModelsPath) then
+        MsgBox('Could not completely remove the models directory:' + CRLF +
+          ModelsPath, mbError, MB_OK);
+    end;
+  end;
+
+  if CleanupConfigOnUninstall then
+  begin
+    ConfigPath := ExpandConstant('{userappdata}') + '\WhisperGUI\config.yaml';
+    ConfigDir := ExtractFileDir(ConfigPath);
+    if FileExists(ConfigPath) then
+    begin
+      if not DeleteFile(ConfigPath) and FileExists(ConfigPath) then
+        MsgBox('Could not remove the configuration file:' + CRLF +
+          ConfigPath, mbError, MB_OK);
+    end;
+    { Only remove the parent directory if empty. }
+    if DirExists(ConfigDir) and not DirectoryHasEntries(ConfigDir) then
+      RemoveDir(ConfigDir);
+  end;
+end;

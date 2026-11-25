@@ -23,6 +23,15 @@ BUILD = ROOT / 'whisper-build'
 PACKAGE = ROOT / 'runtime-package'
 LOGS = ROOT / 'runtime-logs'
 DIST = ROOT / 'dist'
+REQUIRED_CLI_FLAGS = ('--dtw', '--no-flash-attn', '--vad', '--vad-model', '--prompt',
+                      '--carry-initial-prompt', '--temperature', '--no-gpu',
+                      '--output-json-full', '--output-txt', '--output-srt', '--output-vtt')
+# Published SHA256 values from the upstream Hugging Face model file pages.
+SMOKE_MODELS = (
+    ('ggml-tiny.en.bin', 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin',
+     '921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f'),
+    ('ggml-silero-v6.2.0.bin', 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin',
+     '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987'))
 
 
 def run(args, name, *, cwd=ROOT, env=None, timeout=600):
@@ -60,15 +69,15 @@ def run(args, name, *, cwd=ROOT, env=None, timeout=600):
     return ''.join(lines)
 
 
-def download(url, destination):
-    """Download smoke-test models with retries; never include them in packages."""
+def download(url, destination, minimum_size=100_000):
+    """Download required inputs with retries before starting an expensive build."""
     for attempt in range(3):
         try:
             with urllib.request.urlopen(url, timeout=120) as response:
                 with destination.open('wb') as output:
                     shutil.copyfileobj(response, output)
-            if destination.stat().st_size < 100_000:
-                raise RuntimeError('Downloaded model is unexpectedly small')
+            if destination.stat().st_size < minimum_size:
+                raise RuntimeError(f'Download is unexpectedly small: {url}')
             return
         except (OSError, RuntimeError):
             if attempt == 2:
@@ -76,39 +85,125 @@ def download(url, destination):
             time.sleep(3)
 
 
-def copy_windows_dependencies(cuda):
-    """Stage generated DLLs and redistributable MSVC/CUDA runtime libraries."""
-    bindir = PACKAGE / 'bin'
-    for dll in (BUILD / 'bin' / 'Release').glob('*.dll'):
-        shutil.copy2(dll, bindir / dll.name)
-    for filename in ('whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-x64.dll'):
-        if not (bindir / filename).is_file():
-            raise RuntimeError(f'Missing required DLL: {filename}')
+def require_files(paths):
+    """Report all missing or empty packaging inputs in one early failure."""
+    missing = [str(path) for path in paths if not path.is_file() or path.stat().st_size == 0]
+    if missing:
+        raise RuntimeError('Missing or empty required files:\n' + '\n'.join(missing))
+
+
+def prepare_windows_dependencies(cuda):
+    """Resolve and stage external DLLs and licenses before CMake compilation."""
     vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
-    vs = Path(subprocess.check_output([str(vswhere), '-latest', '-products', '*',
-                                      '-property', 'installationPath'], text=True).strip())
+    require_files([vswhere])
+    installation = run([vswhere, '-latest', '-products', '*', '-property', 'installationPath'],
+                       'vswhere').strip()
+    if not installation:
+        raise RuntimeError('Visual Studio installation not found')
+    vs = Path(installation)
     redists = list((vs / 'VC/Redist/MSVC').glob('14.*'))
     redists.sort(key=lambda p: tuple(int(n) for n in p.name.split('.')), reverse=True)
     if not redists:
         raise RuntimeError('MSVC redistributable directory not found')
+    dependencies = []
     for family in ('CRT', 'OpenMP'):
         folders = list((redists[0] / 'x64').glob(f'Microsoft.VC*.{family}'))
         if len(folders) != 1:
             raise RuntimeError(f'Expected one MSVC {family} directory, found {folders}')
-        for dll in folders[0].glob('*.dll'):
-            shutil.copy2(dll, bindir / dll.name)
+        dlls = list(folders[0].glob('*.dll'))
+        if not dlls:
+            raise RuntimeError(f'MSVC {family} directory contains no DLLs: {folders[0]}')
+        dependencies.extend(dlls)
+    required_names = {'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'vcomp140.dll'}
+    if not required_names.issubset({dll.name.lower() for dll in dependencies}):
+        raise RuntimeError('MSVC redistributables are incomplete: CRT/OpenMP DLLs are missing')
     if cuda:
         cuda_root = Path(os.environ['CUDA_PATH'])
-        for filename in ('cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll'):
-            shutil.copy2(cuda_root / 'bin' / filename, bindir / filename)
-        if not (bindir / 'ggml-cuda.dll').is_file():
-            raise RuntimeError('CUDA backend was not built')
-        license_file = cuda_root / 'EULA.txt'
-        if not license_file.is_file():
-            raise RuntimeError('CUDA redistribution license is missing')
-        shutil.copy2(license_file, PACKAGE / 'LICENSE-CUDA.txt')
+        dependencies.extend(cuda_root / 'bin' / filename for filename in
+                            ('cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll'))
+    require_files(dependencies)
+    for dll in dependencies:
+        shutil.copy2(dll, PACKAGE / 'bin' / dll.name)
+    if cuda:
+        prepare_cuda_license(cuda_root)
+
+
+def prepare_cuda_license(cuda_root):
+    """Use the installed EULA or NVIDIA's archived EULA for the exact toolkit."""
+    candidates = [cuda_root / 'EULA.txt', cuda_root / 'doc/EULA.txt']
+    for license_file in candidates:
+        if license_file.is_file() and license_file.stat().st_size > 0:
+            shutil.copy2(license_file, PACKAGE / 'LICENSE-CUDA.txt')
+            return
+    version = os.environ['CUDA_VERSION']
+    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+        raise RuntimeError(f'Invalid CUDA version for license download: {version}')
+    url = f'https://docs.nvidia.com/cuda/archive/{version}/eula/index.html'
+    destination = PACKAGE / 'LICENSE-CUDA.html'
+    download(url, destination, minimum_size=1000)
+    text = destination.read_text(encoding='utf-8').lower()
+    if not all(marker in text for marker in ('nvidia', 'cuda', 'license agreement', 'supplement')):
+        destination.unlink()
+        raise RuntimeError(f'Unexpected CUDA license document: {url}')
+    (PACKAGE / 'LICENSE-CUDA-SOURCE.txt').write_text(url + '\n', encoding='utf-8')
+
+
+def copy_windows_dependencies(cuda):
+    """Stage generated backends; external dependencies were checked before build."""
+    bindir = PACKAGE / 'bin'
+    for dll in (BUILD / 'bin' / 'Release').glob('*.dll'):
+        shutil.copy2(dll, bindir / dll.name)
+    required = ['whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-x64.dll']
+    if cuda:
+        required.append('ggml-cuda.dll')
     elif (bindir / 'ggml-cuda.dll').exists():
         raise RuntimeError('CPU package unexpectedly contains a CUDA backend')
+    require_files([bindir / name for name in required])
+
+
+def prepare_smoke_inputs():
+    """Fetch test data before compilation; reuse it when verifying the package."""
+    require_files([SOURCE / 'samples/jfk.wav'])
+    testdir = ROOT / 'smoke-test'
+    testdir.mkdir(exist_ok=True)
+    for filename, url, expected in SMOKE_MODELS:
+        destination = testdir / filename
+        if not destination.is_file() or sha256(destination) != expected:
+            download(url, destination)
+        if sha256(destination) != expected:
+            destination.unlink()
+            raise RuntimeError(f'Smoke-test model checksum does not match: {filename}')
+    shutil.copy2(SOURCE / 'samples/jfk.wav', testdir / 'jfk.wav')
+    return testdir
+
+
+def sha256(path):
+    """Hash model inputs and published archives without loading them into memory."""
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def preflight(target, stage_only=False):
+    """Check packaging inputs, source options and tools before the long build."""
+    require_files([SOURCE / 'LICENSE', SOURCE / 'examples/cli/cli.cpp'])
+    cli_source = (SOURCE / 'examples/cli/cli.cpp').read_text(encoding='utf-8')
+    for flag in REQUIRED_CLI_FLAGS:
+        if f'"{flag}"' not in cli_source:
+            raise RuntimeError(f'Source does not support required CLI option: {flag}')
+    if target.startswith('windows-'):
+        env = {key.upper(): value for key, value in os.environ.items()}
+        if not env.get('SYSTEMROOT'):
+            raise RuntimeError('SYSTEMROOT is missing')
+        tools = () if stage_only else ('cmake', 'ninja', 'cl', 'nvcc')
+        if target.endswith('-cuda') and not os.environ.get('CUDA_VERSION'):
+            raise RuntimeError('CUDA_VERSION is missing')
+        prepare_windows_dependencies(target.endswith('-cuda'))
+    else:
+        tools = ('cmake', 'c++', 'lipo', 'otool') if target.startswith('macos-') else ('cmake', 'c++', 'ldd', 'file')
+    missing = [tool for tool in tools if not shutil.which(tool)]
+    if missing:
+        raise RuntimeError('Required tools are missing from PATH: ' + ', '.join(missing))
+    prepare_smoke_inputs()
 
 
 def verify_dependencies(cli, target):
@@ -151,19 +246,12 @@ def smoke_test(cli, version, target):
     if not re.search(r'\b' + re.escape(version) + r'\b', reported):
         raise RuntimeError('Unexpected whisper.cpp version')
     help_text = run([cli, '--help'], 'help', cwd=cli.parent, env=env)
-    required = ('--dtw', '--no-flash-attn', '--vad', '--vad-model', '--prompt',
-                '--carry-initial-prompt', '--temperature', '--no-gpu',
-                '--output-json-full', '--output-txt', '--output-srt', '--output-vtt')
-    for flag in required:
+    for flag in REQUIRED_CLI_FLAGS:
         if flag not in help_text:
             raise RuntimeError(f'Required CLI option is missing: {flag}')
-    testdir = ROOT / 'smoke-test'
-    testdir.mkdir()
+    testdir = prepare_smoke_inputs()
     model = testdir / 'ggml-tiny.en.bin'
     vad = testdir / 'ggml-silero-v6.2.0.bin'
-    download('https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin', model)
-    download('https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin', vad)
-    shutil.copy2(SOURCE / 'samples/jfk.wav', testdir / 'jfk.wav')
     # CPU inference also checks the fallback in CUDA/Metal packages. DTW and VAD
     # run separately, as these are independently selectable WhisperGUI features.
     for mode, options in (('dtw', ['--dtw', 'tiny.en', '--no-flash-attn', '-ojf']),
@@ -210,7 +298,14 @@ def main():
     actual_commit = run(['git', '-C', SOURCE, 'rev-parse', 'HEAD'], 'source').strip()
     if actual_commit != commit:
         raise RuntimeError('Source commit does not match pinned commit')
-    cmake_version = run(['cmake', '--version'], 'cmake-version')
+    stage_only = '--stage-only' in sys.argv
+    if stage_only:
+        if not windows or not os.environ.get('RECOVERED_BUILD_RUN') or not os.environ.get('RECOVERED_BUILD_HEAD'):
+            raise RuntimeError('Staging recovered binaries requires a validated Windows source run')
+        require_files([BUILD / 'bin/Release/whisper-cli.exe'])
+    print('Checking packaging dependencies, licenses and smoke-test inputs before compilation.', flush=True)
+    preflight(target, stage_only=stage_only)
+    cmake_version = None if stage_only else run(['cmake', '--version'], 'cmake-version').strip()
     options = ['-DCMAKE_BUILD_TYPE=Release', '-DGGML_NATIVE=OFF',
                '-DWHISPER_BUILD_IS_DEV=OFF', '-DWHISPER_BUILD_TESTS=OFF',
                '-DWHISPER_BUILD_SERVER=OFF', '-DWHISPER_BUILD_EXAMPLES=ON',
@@ -234,14 +329,15 @@ def main():
         if macos:
             options += ['-DGGML_METAL_EMBED_LIBRARY=ON', '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0',
                         '-DCMAKE_OSX_ARCHITECTURES=' + expected_machine]
-    run(['cmake', '-S', SOURCE, '-B', BUILD, *options], 'configure')
     # Build ALL on Windows: dynamically loaded CPU/CUDA backends are not linked
     # dependencies of the whisper-cli target, but must be shipped with it.
     jobs = str(os.cpu_count() or 3) if windows else '3'
     command = ['cmake', '--build', BUILD, '--config', 'Release', '--parallel', jobs]
     if not windows:
         command += ['--target', 'whisper-cli']
-    run(command, 'build', timeout=12600)
+    if not stage_only:
+        run(['cmake', '-S', SOURCE, '-B', BUILD, *options], 'configure')
+        run(command, 'build', timeout=12600)
     filename = 'whisper-cli.exe' if windows else 'whisper-cli'
     original = BUILD / 'bin' / ('Release' if windows else '') / filename
     cli = PACKAGE / 'bin' / filename
@@ -259,17 +355,20 @@ def main():
                     'https://visualstudio.microsoft.com/license-terms/']
     if cuda:
         notices += ['Includes NVIDIA CUDA runtime and cuBLAS redistributables.',
-                    'See LICENSE-CUDA.txt. NVIDIA display driver is not included.']
+                    'See LICENSE-CUDA.txt or LICENSE-CUDA.html. NVIDIA display driver is not included.']
     (PACKAGE / 'THIRD-PARTY-NOTICES.txt').write_text('\n'.join(notices) + '\n', encoding='utf-8')
     metadata = {'version': version, 'commit': commit, 'target': target,
                 'cuda_toolkit': os.environ['CUDA_VERSION'] if cuda else None,
-                'cmake': cmake_version.strip(), 'cmake_options': options,
+                'cmake': cmake_version, 'cmake_options': None if stage_only else options,
                 'runner': platform.platform(), 'run_url':
                 f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}",
                 'validation': 'pending',
                 'gpu_inference_tested': False}
+    if stage_only:
+        metadata['recovered_build_run'] = os.environ['RECOVERED_BUILD_RUN']
+        metadata['recovered_build_head'] = os.environ['RECOVERED_BUILD_HEAD']
     (PACKAGE / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
-    if '--build-only' not in sys.argv:
+    if '--build-only' not in sys.argv and not stage_only:
         verify_package(version, commit, target)
 
 
@@ -294,8 +393,7 @@ def verify_package(version, commit, target):
         for path in sorted(PACKAGE.rglob('*')):
             if path.is_file():
                 output.write(path, path.relative_to(PACKAGE))
-    with archive.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    digest = sha256(archive)
     archive.with_suffix('.zip.sha256').write_text(f'{digest}  {archive.name}\n', encoding='utf-8')
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:

@@ -12,6 +12,10 @@ on:
         description: 'Optional earlier run ID: retest its Windows candidate without rebuilding'
         type: string
         default: ''
+      windows_partial_run:
+        description: 'Optional earlier run ID: package its saved Windows binaries without recompiling'
+        type: string
+        default: ''
   push:
     branches: [main]
     paths:
@@ -21,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   WHISPER_VERSION: '1.9.6'
@@ -62,8 +67,35 @@ jobs:
           python-version: '3.12'
       - name: Test runtime build and recovery safeguards
         run: python -m unittest discover -s scripts -p test_build_whisper_runtime.py -v
+      - name: Validate Windows recovery selection
+        if: inputs.windows_candidate_run || inputs.windows_partial_run
+        uses: actions/github-script@v7
+        id: recovery
+        env:
+          CANDIDATE_RUN: ${{ inputs.windows_candidate_run }}
+          PARTIAL_RUN: ${{ inputs.windows_partial_run }}
+        with:
+          script: |
+            const candidate = process.env.CANDIDATE_RUN;
+            const partial = process.env.PARTIAL_RUN;
+            if (candidate && partial) throw new Error('Choose either candidate recovery or partial-binary recovery.');
+            const selected = partial || candidate;
+            if (!/^[1-9][0-9]*$/.test(selected)) throw new Error('The earlier run ID must be a positive integer.');
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(selected)});
+            if (run.path !== '.github/workflows/whisper-runtime.yml' || run.event === 'pull_request') {
+              throw new Error('The selected run is not a trusted runtime build.');
+            }
+            const {data: file} = await github.rest.repos.getContent({
+              ...context.repo, path: '.github/workflows/whisper-runtime.yml', ref: run.head_sha
+            });
+            const workflow = Buffer.from(file.content, 'base64').toString('utf8');
+            for (const key of ['WHISPER_VERSION', 'WHISPER_COMMIT', 'CUDA_VERSION']) {
+              const match = workflow.match(new RegExp('^  ' + key + ": ['\"]([^'\"]+)['\"]\\s*$", 'm'));
+              if (!match || match[1] !== process.env[key]) throw new Error('Earlier run has incompatible ' + key);
+            }
+            core.setOutput('head', run.head_sha);
       - name: Install CUDA-compatible MSVC toolset
-        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run
+        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run && !inputs.windows_partial_run
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -83,10 +115,10 @@ jobs:
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
           use-github-cache: false
       - name: Install Ninja
-        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run
+        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run && !inputs.windows_partial_run
         run: choco install ninja -y --no-progress
       - name: Cache Windows compilation like upstream
-        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run
+        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run && !inputs.windows_partial_run
         uses: ggml-org/ccache-action@1bbbcda0748b3e340dee71a314fa68ffcbd6df79 # v1.2.21
         with:
           key: whisper-${{ env.WHISPER_COMMIT }}-windows-cuda-${{ env.CUDA_VERSION }}-msvc1438-ninja
@@ -100,15 +132,37 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.windows_candidate_run }}
       - name: Build and stage Windows runtime
-        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run
+        if: matrix.target == 'windows-x64-cuda' && !inputs.windows_candidate_run && !inputs.windows_partial_run
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64 -vcvars_ver=14.38
           if errorlevel 1 exit /b %errorlevel%
           python scripts/build-whisper-runtime.py --build-only
+      - name: Recover previously compiled Windows binaries
+        if: matrix.target == 'windows-x64-cuda' && inputs.windows_partial_run
+        uses: actions/download-artifact@v4
+        with:
+          name: whisper-partial-windows-x64-cuda
+          path: whisper-build/bin/Release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.windows_partial_run }}
+      - name: Stage recovered Windows binaries without compiling
+        if: matrix.target == 'windows-x64-cuda' && inputs.windows_partial_run
+        env:
+          RECOVERED_BUILD_RUN: ${{ inputs.windows_partial_run }}
+          RECOVERED_BUILD_HEAD: ${{ steps.recovery.outputs.head }}
+        run: python scripts/build-whisper-runtime.py --stage-only
       - name: Build and stage Unix runtime
-        if: matrix.target != 'windows-x64-cuda'
+        if: matrix.target != 'windows-x64-cuda' && !inputs.windows_candidate_run && !inputs.windows_partial_run
         run: python scripts/build-whisper-runtime.py --build-only
+      - name: Recover previous Unix candidate
+        if: matrix.target != 'windows-x64-cuda' && (inputs.windows_candidate_run || inputs.windows_partial_run)
+        uses: actions/download-artifact@v4
+        with:
+          name: whisper-candidate-${{ env.WHISPER_VERSION }}-${{ matrix.target }}
+          path: runtime-package
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.windows_candidate_run || inputs.windows_partial_run }}
       - name: Preserve candidate before verification
         uses: actions/upload-artifact@v4
         with:

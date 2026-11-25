@@ -29,13 +29,28 @@ licenses and build metadata. Candidates are **unverified** and retained for
 90 days. If Windows tests fail, launch the workflow again and enter that earlier
 run's numeric ID in **Optional earlier run ID**. The Windows job downloads its
 candidate, skips compiler/CUDA installation and compilation, and reruns the tests.
-Candidate metadata must match the fixed version, commit and target. Other targets
-build normally. Old runs made before this feature have no candidate to recover.
+Candidate metadata must match the fixed version, commit and target. The Unix
+targets also reuse and reverify their candidates from that run. Old runs made
+before this feature have no candidate to recover.
 
 When Windows compilation itself fails or times out, any files already produced
 in its output directory are also uploaded as `whisper-partial-windows-x64-cuda`.
-These may be incomplete and cannot be used as a verified runtime or as an input
-to the candidate-recovery option. A timeout before linking may leave no binaries.
+These may be incomplete and must not be used as a verified runtime. A timeout
+before linking may leave no binaries.
+
+If compilation completed but staging failed (for example, while locating the
+CUDA license), rerun the workflow on `main` and enter the earlier numeric run ID
+in **Optional earlier run ID: package its saved Windows binaries without
+recompiling** (`windows_partial_run`). Leave `windows_candidate_run` empty.
+The workflow checks the original workflow path, event and pinned whisper/CUDA
+versions before downloading `whisper-partial-windows-x64-cuda`. It reinstalls
+the CUDA redistributables, stages the saved executable and DLLs, adds licenses,
+and performs the normal verification. It skips MSVC toolset installation,
+Ninja, ccache, CMake configuration and compilation for Windows. Missing binaries
+are rejected; this recovery mode does not silently fall back to a rebuild.
+The Unix targets reuse and reverify their saved candidates too, without building.
+Recovery metadata records the original
+run ID and head commit, and leaves unknown original CMake details unset.
 
 | Package target | Runner | Backend and compatibility |
 | --- | --- | --- |
@@ -67,6 +82,19 @@ limited to 2 GiB and is an acceleration mechanism, not permanent binary storage.
 The build command has a 210-minute timeout inside a 240-minute job budget; ordinary
 checks have a 10-minute timeout. Compiler output streams to the Actions console
 and log file as it is produced, including output before a timeout or failure.
+
+Before CMake configuration or compilation, the script verifies the upstream
+license/sample and required CLI options, resolves the MSVC CRT/OpenMP and CUDA
+DLLs, stages their redistributables, and prepares the CUDA license. It uses a
+local `EULA.txt` when available; otherwise it downloads the official
+[NVIDIA EULA for CUDA 12.4.1](https://docs.nvidia.com/cuda/archive/12.4.1/eula/index.html)
+as `LICENSE-CUDA.html`, recording its URL in `LICENSE-CUDA-SOURCE.txt`.
+Selective toolkit installation does not have to provide `CUDA_PATH/EULA.txt`.
+Required build/verification tools are checked as well. Smoke-test models are
+downloaded and checked against their published SHA256 values before compilation,
+then reused during verification. Missing DLLs, unavailable downloads, invalid
+license documents or corrupt models therefore fail before the long build.
+Checks that require a compiled executable still run after staging.
 
 Unix builds link whisper/ggml statically. macOS packages require only system
 frameworks/libraries and include the Metal shader library in the executable.

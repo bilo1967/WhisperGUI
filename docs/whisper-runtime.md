@@ -10,17 +10,32 @@ or search upstream Actions for the latest successful run.
 1. Open **Actions → Build whisper.cpp runtimes → Run workflow** on `main`.
 2. Leave **Keep all verified packages in a dedicated runtime release** enabled
    to preserve the packages beyond Actions artifact expiry.
-3. After all five builds succeed, download from **Releases**. The release is named
+3. Download verified packages from **Releases**. The release is named
    `whisper.cpp 1.9.6 runtimes (build N)`, with tag
    `whisper-runtime-v1.9.6-build-N`. It is marked as a prerelease because the
    packages still need GPU and end-user platform validation.
 
 Each build also uploads its package to the run's **Artifacts**, retained for
 90 days. Diagnostics are retained for 14 days, including when a build fails.
-Changes to the workflow or build script automatically trigger builds on `main`;
-these runs do not publish releases. Manual runs publish only if requested and
-only after **all five targets** succeed. A failed target does not prevent other
-targets from completing and uploading their verified artifacts.
+Changes to the workflow or build script automatically trigger builds on `main`
+and preserve verified packages in a runtime release. Manual runs publish if
+requested. Publication also runs when a platform fails: a partial release states
+how many of the five packages passed verification, and preserves those packages.
+A failed target does not prevent other targets from completing and uploading.
+
+Compilation and verification are separate steps. Before tests start, each target
+uploads a `whisper-candidate-1.9.6-TARGET` artifact containing its staged runtime,
+licenses and build metadata. Candidates are **unverified** and retained for
+90 days. If Windows tests fail, launch the workflow again and enter that earlier
+run's numeric ID in **Optional earlier run ID**. The Windows job downloads its
+candidate, skips compiler/CUDA installation and compilation, and reruns the tests.
+Candidate metadata must match the fixed version, commit and target. Other targets
+build normally. Old runs made before this feature have no candidate to recover.
+
+When Windows compilation itself fails or times out, any files already produced
+in its output directory are also uploaded as `whisper-partial-windows-x64-cuda`.
+These may be incomplete and cannot be used as a verified runtime or as an input
+to the candidate-recovery option. A timeout before linking may leave no binaries.
 
 | Package target | Runner | Backend and compatibility |
 | --- | --- | --- |
@@ -43,6 +58,15 @@ kernels; this is not a validated package for RTX 50-series GPUs.
 CUDA 12.4 requires an older MSVC compiler than the default on current runners.
 The workflow installs MSVC 14.38 and selects it explicitly, rather than disabling
 NVIDIA's compiler compatibility check.
+
+The Windows build follows the upstream v1.9.6
+[`release.yml` CUDA job](https://github.com/ggml-org/whisper.cpp/blob/v1.9.6/.github/workflows/release.yml):
+Ninja Multi-Config, ccache and parallel compilation using the runner's CPU count.
+It retains our explicit MSVC 14.38 selection for CUDA 12.4. The compiler cache is
+limited to 2 GiB and is an acceleration mechanism, not permanent binary storage.
+The build command has a 210-minute timeout inside a 240-minute job budget; ordinary
+checks have a 10-minute timeout. Compiler output streams to the Actions console
+and log file as it is produced, including output before a timeout or failure.
 
 Unix builds link whisper/ggml statically. macOS packages require only system
 frameworks/libraries and include the Metal shader library in the executable.

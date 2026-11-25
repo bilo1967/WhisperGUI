@@ -8,8 +8,10 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import zipfile
@@ -23,16 +25,39 @@ LOGS = ROOT / 'runtime-logs'
 DIST = ROOT / 'dist'
 
 
-def run(args, name, *, cwd=ROOT, env=None):
-    """Keep complete command output in diagnostics and propagate failures."""
+def run(args, name, *, cwd=ROOT, env=None, timeout=600):
+    """Stream diagnostics to disk/console, retaining output even on timeout."""
     print('+', ' '.join(map(str, args)), flush=True)
-    result = subprocess.run(list(map(str, args)), cwd=cwd, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding='utf-8', errors='replace', timeout=5400)
-    (LOGS / (name + '.log')).write_text(result.stdout, encoding='utf-8')
-    print(result.stdout, flush=True)
-    result.check_returncode()
-    return result.stdout
+    lines = []
+    with (LOGS / (name + '.log')).open('w', encoding='utf-8', buffering=1) as log:
+        process = subprocess.Popen(list(map(str, args)), cwd=cwd, env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding='utf-8', errors='replace',
+                                   start_new_session=os.name != 'nt')
+        def copy_output():
+            for line in process.stdout:
+                log.write(line)
+                print(line, end='', flush=True)
+                lines.append(line)
+        reader = threading.Thread(target=copy_output, daemon=True)
+        reader.start()
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=30, check=False)
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise
+        finally:
+            reader.join()
+            process.stdout.close()
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, args)
+    return ''.join(lines)
 
 
 def download(url, destination):
@@ -179,6 +204,9 @@ def main():
         raise RuntimeError(f'Runner architecture {actual_machine} does not match {target}')
     for folder in (LOGS, DIST, PACKAGE / 'bin'):
         folder.mkdir(parents=True, exist_ok=True)
+    if '--verify-only' in sys.argv:
+        verify_package(version, commit, target)
+        return
     actual_commit = run(['git', '-C', SOURCE, 'rev-parse', 'HEAD'], 'source').strip()
     if actual_commit != commit:
         raise RuntimeError('Source commit does not match pinned commit')
@@ -189,12 +217,17 @@ def main():
                '-DWHISPER_SDL2=OFF', '-DWHISPER_CURL=OFF',
                '-DGGML_CUDA=' + ('ON' if cuda else 'OFF')]
     if windows:
-        options += ['-G', 'Visual Studio 17 2022', '-A', 'x64',
+        # Match upstream's CUDA release workflow. vcvarsall selects MSVC 14.38
+        # before this script starts; Ninja does not accept Visual Studio -A/-T.
+        options += ['-G', 'Ninja Multi-Config',
                     '-DBUILD_SHARED_LIBS=ON', '-DGGML_BACKEND_DL=ON',
                     '-DGGML_CPU_ALL_VARIANTS=ON']
         if cuda:
-            options += ['-T', 'version=14.38',
-                        '-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared']
+            options += ['-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared']
+        if shutil.which('ccache'):
+            options += ['-DCMAKE_C_COMPILER_LAUNCHER=ccache',
+                        '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache',
+                        '-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache']
     else:
         options += ['-DBUILD_SHARED_LIBS=OFF', '-DGGML_BACKEND_DL=OFF',
                     '-DGGML_OPENMP=OFF', '-DGGML_METAL=' + ('ON' if macos else 'OFF')]
@@ -204,10 +237,11 @@ def main():
     run(['cmake', '-S', SOURCE, '-B', BUILD, *options], 'configure')
     # Build ALL on Windows: dynamically loaded CPU/CUDA backends are not linked
     # dependencies of the whisper-cli target, but must be shipped with it.
-    command = ['cmake', '--build', BUILD, '--config', 'Release', '--parallel', '3']
+    jobs = str(os.cpu_count() or 3) if windows else '3'
+    command = ['cmake', '--build', BUILD, '--config', 'Release', '--parallel', jobs]
     if not windows:
         command += ['--target', 'whisper-cli']
-    run(command, 'build')
+    run(command, 'build', timeout=12600)
     filename = 'whisper-cli.exe' if windows else 'whisper-cli'
     original = BUILD / 'bin' / ('Release' if windows else '') / filename
     cli = PACKAGE / 'bin' / filename
@@ -227,16 +261,34 @@ def main():
         notices += ['Includes NVIDIA CUDA runtime and cuBLAS redistributables.',
                     'See LICENSE-CUDA.txt. NVIDIA display driver is not included.']
     (PACKAGE / 'THIRD-PARTY-NOTICES.txt').write_text('\n'.join(notices) + '\n', encoding='utf-8')
-    verify_dependencies(cli, target)
-    smoke_test(cli, version, target)
     metadata = {'version': version, 'commit': commit, 'target': target,
                 'cuda_toolkit': os.environ['CUDA_VERSION'] if cuda else None,
                 'cmake': cmake_version.strip(), 'cmake_options': options,
                 'runner': platform.platform(), 'run_url':
                 f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}",
-                'validation': 'CPU inference: tiny.en, DTW, Silero VAD 6.2.0, TXT/SRT/VTT/JSON',
+                'validation': 'pending',
                 'gpu_inference_tested': False}
     (PACKAGE / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+    if '--build-only' not in sys.argv:
+        verify_package(version, commit, target)
+
+
+def verify_package(version, commit, target):
+    """Verify an existing candidate, including one recovered from an earlier run."""
+    metadata_path = PACKAGE / 'BUILD-INFO.json'
+    metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+    for key, expected in (('version', version), ('commit', commit), ('target', target)):
+        if metadata.get(key) != expected:
+            raise RuntimeError(f'Candidate {key} does not match: {metadata.get(key)} != {expected}')
+    filename = 'whisper-cli.exe' if target.startswith('windows-') else 'whisper-cli'
+    cli = PACKAGE / 'bin' / filename
+    verify_dependencies(cli, target)
+    smoke_test(cli, version, target)
+    metadata['validation'] = 'CPU inference: tiny.en, DTW, Silero VAD 6.2.0, TXT/SRT/VTT/JSON'
+    metadata['verification_run_url'] = (
+        f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
+        f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
     archive = DIST / f'whisper-{version}-{target}.zip'
     with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
         for path in sorted(PACKAGE.rglob('*')):

@@ -1,0 +1,137 @@
+name: Recover a saved Windows runtime (maintenance)
+run-name: Recover Windows runtime from run ${{ inputs.source_run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Run ID containing the saved Windows artifact'
+        required: true
+        type: string
+      artifact_kind:
+        description: 'Type of saved Windows artifact'
+        type: choice
+        default: compiled-binaries
+        options:
+          - compiled-binaries
+          - staged-candidate
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  WHISPER_VERSION: '1.9.6'
+  # v1.9.6: build this exact source, independently of changes to upstream tags.
+  WHISPER_COMMIT: '96ec4d9823e9d0211944172da35f9f29134af990'
+  CUDA_VERSION: '12.4.1'
+
+jobs:
+  recover:
+    name: Recover and verify Windows CUDA runtime
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      RUNTIME_TARGET: windows-x64-cuda
+    steps:
+      - name: Checkout WhisperGUI build scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout fixed whisper.cpp source
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: ${{ env.WHISPER_COMMIT }}
+          path: whisper-src
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test runtime build and recovery safeguards
+        run: python -m unittest discover -s scripts -p test_build_whisper_runtime.py -v
+      - name: Validate Windows recovery selection
+        uses: actions/github-script@v7
+        id: recovery
+        env:
+          CANDIDATE_RUN: ${{ inputs.artifact_kind == 'staged-candidate' && inputs.source_run || '' }}
+          PARTIAL_RUN: ${{ inputs.artifact_kind == 'compiled-binaries' && inputs.source_run || '' }}
+        with:
+          script: |
+            const candidate = process.env.CANDIDATE_RUN;
+            const partial = process.env.PARTIAL_RUN;
+            if (candidate && partial) throw new Error('Choose either candidate recovery or partial-binary recovery.');
+            const selected = partial || candidate;
+            if (!/^[1-9][0-9]*$/.test(selected)) throw new Error('The earlier run ID must be a positive integer.');
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(selected)});
+            if (run.path !== '.github/workflows/whisper-runtime.yml' || run.event === 'pull_request') {
+              throw new Error('The selected run is not a trusted runtime build.');
+            }
+            const {data: file} = await github.rest.repos.getContent({
+              ...context.repo, path: '.github/workflows/whisper-runtime.yml', ref: run.head_sha
+            });
+            const workflow = Buffer.from(file.content, 'base64').toString('utf8');
+            for (const key of ['WHISPER_VERSION', 'WHISPER_COMMIT', 'CUDA_VERSION']) {
+              const match = workflow.match(new RegExp('^  ' + key + ": ['\"]([^'\"]+)['\"]\\s*$", 'm'));
+              if (!match || match[1] !== process.env[key]) throw new Error('Earlier run has incompatible ' + key);
+            }
+            core.setOutput('head', run.head_sha);
+      - name: Install fixed CUDA toolkit
+        if: inputs.artifact_kind == 'compiled-binaries'
+        uses: Jimver/cuda-toolkit@c35baa1a18fd1fc9dcf47c5bd839bf30559c0bc3 # v0.2.24
+        with:
+          cuda: ${{ env.CUDA_VERSION }}
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+          use-github-cache: false
+      - name: Recover previous Windows candidate
+        if: inputs.artifact_kind == 'staged-candidate'
+        uses: actions/download-artifact@v4
+        with:
+          name: whisper-candidate-${{ env.WHISPER_VERSION }}-windows-x64-cuda
+          path: runtime-package
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run }}
+      - name: Recover previously compiled Windows binaries
+        if: inputs.artifact_kind == 'compiled-binaries'
+        uses: actions/download-artifact@v4
+        with:
+          name: whisper-partial-windows-x64-cuda
+          path: whisper-build/bin/Release
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run }}
+      - name: Stage recovered Windows binaries without compiling
+        if: inputs.artifact_kind == 'compiled-binaries'
+        env:
+          RECOVERED_BUILD_RUN: ${{ inputs.source_run }}
+          RECOVERED_BUILD_HEAD: ${{ steps.recovery.outputs.head }}
+        run: python scripts/build-whisper-runtime.py --stage-only
+      - name: Preserve candidate before verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-candidate-${{ env.WHISPER_VERSION }}-windows-x64-cuda
+          path: runtime-package/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Verify staged runtime and archive
+        run: python scripts/build-whisper-runtime.py --verify-only
+      - name: Upload verified runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ env.WHISPER_VERSION }}-windows-x64-cuda
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Upload build and smoke-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-logs-windows-x64-cuda
+          path: |
+            runtime-logs/
+            whisper-build/CMakeCache.txt
+            whisper-build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+          retention-days: 14

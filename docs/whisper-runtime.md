@@ -5,52 +5,30 @@ whisper.cpp **v1.9.6**, fixed at commit
 `96ec4d9823e9d0211944172da35f9f29134af990`. It does not follow upstream `master`
 or search upstream Actions for the latest successful run.
 
-## Running and downloading
+## Normal use: build all five platforms
 
-1. Open **Actions → Build whisper.cpp runtimes → Run workflow** on `main`.
-2. Leave **Keep all verified packages in a dedicated runtime release** enabled
-   to preserve the packages beyond Actions artifact expiry.
-3. Download verified packages from **Releases**. The release is named
-   `whisper.cpp 1.9.6 runtimes (build N)`, with tag
-   `whisper-runtime-v1.9.6-build-N`. It is marked as a prerelease because the
-   packages still need GPU and end-user platform validation.
+This is a reusable build workflow, not a one-time recovery operation.
 
-Each build also uploads its package to the run's **Artifacts**, retained for
-90 days. Diagnostics are retained for 14 days, including when a build fails.
-Changes to the workflow or build script automatically trigger builds on `main`
-and preserve verified packages in a runtime release. Manual runs publish if
-requested. Publication also runs when a platform fails: a partial release states
-how many of the five packages passed verification, and preserves those packages.
-A failed target does not prevent other targets from completing and uploading.
+1. Open **Actions → Build all 5 whisper.cpp runtimes → Run workflow** on `main`.
+2. Leave **Keep all verified packages in a dedicated runtime release** enabled.
+3. Click **Run workflow**. No run IDs or recovery settings are needed.
 
-Compilation and verification are separate steps. Before tests start, each target
-uploads a `whisper-candidate-1.9.6-TARGET` artifact containing its staged runtime,
-licenses and build metadata. Candidates are **unverified** and retained for
-90 days. If Windows tests fail, launch the workflow again and enter that earlier
-run's numeric ID in **Optional earlier run ID**. The Windows job downloads its
-candidate, skips compiler/CUDA installation and compilation, and reruns the tests.
-Candidate metadata must match the fixed version, commit and target. The Unix
-targets also reuse and reverify their candidates from that run. Old runs made
-before this feature have no candidate to recover.
+Every run compiles and verifies all five targets listed below. Only manual
+launches start builds; changes to the build scripts do not automatically start
+another expensive Windows compilation.
 
-When Windows compilation itself fails or times out, any files already produced
-in its output directory are also uploaded as `whisper-partial-windows-x64-cuda`.
-These may be incomplete and must not be used as a verified runtime. A timeout
-before linking may leave no binaries.
+After all five targets succeed, **Releases** contains all five ZIPs and
+`SHA256SUMS.txt`. The prerelease is named
+`whisper.cpp 1.9.6 runtimes (build N)`, tagged `whisper-runtime-v1.9.6-build-N`.
+GPU and end-user validation is still needed before application distribution.
+Rerunning the publication job updates an existing release for that run.
 
-If compilation completed but staging failed (for example, while locating the
-CUDA license), rerun the workflow on `main` and enter the earlier numeric run ID
-in **Optional earlier run ID: package its saved Windows binaries without
-recompiling** (`windows_partial_run`). Leave `windows_candidate_run` empty.
-The workflow checks the original workflow path, event and pinned whisper/CUDA
-versions before downloading `whisper-partial-windows-x64-cuda`. It reinstalls
-the CUDA redistributables, stages the saved executable and DLLs, adds licenses,
-and performs the normal verification. It skips MSVC toolset installation,
-Ninja, ccache, CMake configuration and compilation for Windows. Missing binaries
-are rejected; this recovery mode does not silently fall back to a rebuild.
-The Unix targets reuse and reverify their saved candidates too, without building.
-Recovery metadata records the original
-run ID and head commit, and leaves unknown original CMake details unset.
+Each successful target also uploads its verified ZIP and SHA256 sidecar to
+**Artifacts**, retained for 90 days. If a target fails, the other four continue
+and their successful artifacts remain downloadable; the complete release is
+published only when all five pass. Diagnostics are retained for 14 days.
+Unverified candidates are saved separately before verification, and partial
+Windows binaries are preserved when a build/staging step fails.
 
 | Package target | Runner | Backend and compatibility |
 | --- | --- | --- |
@@ -131,6 +109,22 @@ Each ZIP has a SHA256 sidecar; permanent runtime releases include a combined
 `SHA256SUMS.txt`. Build metadata records the source commit, CMake version/options,
 runner, workflow URL and validation performed. Compiler configuration and full
 test logs are available in the diagnostic artifacts.
+
+## Maintenance recovery (optional)
+
+**Recover a saved Windows runtime (maintenance)** is a separate workflow for
+exceptional recovery. It does not build the five-platform set or publish a full
+release. For normal builds, use **Build all 5 whisper.cpp runtimes** above.
+
+Supply `source_run` with the earlier run ID and choose `compiled-binaries`
+for `whisper-partial-windows-x64-cuda`, or `staged-candidate` for
+`whisper-candidate-1.9.6-windows-x64-cuda`. The workflow validates the original
+source/CUDA pins and repackages/reverifies Windows without compilation. Its
+verified Windows ZIP is available in that run's Artifacts. Incomplete binaries
+fail verification rather than triggering a new build.
+
+When a Unix candidate is verified after artifact transfer, the builder restores
+its executable permission before running it and before creating the final ZIP.
 
 ## Updating
 

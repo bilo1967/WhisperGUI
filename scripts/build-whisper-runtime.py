@@ -381,6 +381,10 @@ def verify_package(version, commit, target):
             raise RuntimeError(f'Candidate {key} does not match: {metadata.get(key)} != {expected}')
     filename = 'whisper-cli.exe' if target.startswith('windows-') else 'whisper-cli'
     cli = PACKAGE / 'bin' / filename
+    require_files([cli])
+    if not target.startswith('windows-'):
+        # Artifact upload/download preserves content but resets Unix files to 0644.
+        cli.chmod(0o755)
     verify_dependencies(cli, target)
     smoke_test(cli, version, target)
     metadata['validation'] = 'CPU inference: tiny.en, DTW, Silero VAD 6.2.0, TXT/SRT/VTT/JSON'

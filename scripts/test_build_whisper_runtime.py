@@ -281,6 +281,32 @@ class RuntimeBuildTests(unittest.TestCase):
                 self.assertNotEqual(saved['validation'], 'pending')
             self.assertTrue(archive.with_suffix('.zip.sha256').is_file())
 
+    @unittest.skipIf(os.name == 'nt', 'Unix executable permissions require a Unix host')
+    def test_unix_candidate_recovery_restores_executable_permission(self):
+        for target in ('linux-x64-cpu', 'macos-arm64-metal'):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                package, dist = root / 'candidate', root / 'dist'
+                (package / 'bin').mkdir(parents=True)
+                dist.mkdir()
+                cli = package / 'bin/whisper-cli'
+                cli.write_text('#!/bin/sh\necho recovered-runtime\n', encoding='utf-8')
+                cli.chmod(0o644)
+                (package / 'BUILD-INFO.json').write_text(json.dumps({
+                    'version': '1.9.6', 'commit': 'pinned', 'target': target,
+                    'validation': 'pending'}), encoding='utf-8')
+                def execute(candidate, version, target):
+                    result = subprocess.run([str(candidate)], check=True, capture_output=True, text=True)
+                    self.assertEqual(result.stdout.strip(), 'recovered-runtime')
+                with patch.object(BUILDER, 'PACKAGE', package), patch.object(BUILDER, 'DIST', dist), \
+                     patch.object(BUILDER, 'verify_dependencies'), \
+                     patch.object(BUILDER, 'smoke_test', side_effect=execute), \
+                     patch.dict(BUILDER.os.environ, {'GITHUB_STEP_SUMMARY': ''}):
+                    BUILDER.verify_package('1.9.6', 'pinned', target)
+                with zipfile.ZipFile(dist / f'whisper-1.9.6-{target}.zip') as output:
+                    mode = output.getinfo('bin/whisper-cli').external_attr >> 16
+                    self.assertEqual(mode & 0o777, 0o755)
+
 
 if __name__ == '__main__':
     unittest.main()

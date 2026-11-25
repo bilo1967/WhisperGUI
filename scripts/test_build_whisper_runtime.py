@@ -42,7 +42,10 @@ class RuntimeBuildTests(unittest.TestCase):
 
         def inspect(args, name, *, cwd, env):
             self.assertEqual(name, 'version')
-            self.assertEqual(env['PATH'], os.pathsep.join(('C:/Windows/System32', 'C:/Windows')))
+            # Compare paths using the host's conventions (backslashes on Windows).
+            expected_path = os.pathsep.join(str(Path(entry)) for entry in
+                                            ('C:/Windows/System32', 'C:/Windows'))
+            self.assertEqual(env['PATH'], expected_path)
             self.assertNotIn('GGML_BACKEND_PATH', env)
             self.assertNotIn('Path', env)
             raise ReachedVersionCheck()

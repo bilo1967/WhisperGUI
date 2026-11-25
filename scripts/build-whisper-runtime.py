@@ -113,10 +113,14 @@ def verify_dependencies(cli, target):
 def smoke_test(cli, version, target):
     """Exercise staged binaries without build directories or toolkit on PATH."""
     env = os.environ.copy()
+    # os.environ is case-insensitive on Windows, but its plain dict copy is not.
+    # Python normally exposes Windows keys in uppercase (including SYSTEMROOT).
+    if target.startswith('windows-'):
+        env = {key.upper(): value for key, value in env.items()}
     for key in ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'GGML_BACKEND_PATH'):
         env.pop(key, None)
     if target.startswith('windows-'):
-        system = Path(env['SystemRoot'])
+        system = Path(env['SYSTEMROOT'])
         env['PATH'] = os.pathsep.join(map(str, (system / 'System32', system)))
     reported = run([cli, '--version'], 'version', cwd=cli.parent, env=env)
     if not re.search(r'\b' + re.escape(version) + r'\b', reported):

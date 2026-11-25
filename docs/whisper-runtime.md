@@ -10,7 +10,7 @@ or search upstream Actions for the latest successful run.
 1. Open **Actions → Build whisper.cpp runtimes → Run workflow** on `main`.
 2. Leave **Keep all verified packages in a dedicated runtime release** enabled
    to preserve the packages beyond Actions artifact expiry.
-3. After all six builds succeed, download from **Releases**. The release is named
+3. After all five builds succeed, download from **Releases**. The release is named
    `whisper.cpp 1.9.6 runtimes (build N)`, with tag
    `whisper-runtime-v1.9.6-build-N`. It is marked as a prerelease because the
    packages still need GPU and end-user platform validation.
@@ -19,29 +19,30 @@ Each build also uploads its package to the run's **Artifacts**, retained for
 90 days. Diagnostics are retained for 14 days, including when a build fails.
 Changes to the workflow or build script automatically trigger builds on `main`;
 these runs do not publish releases. Manual runs publish only if requested and
-only after **all six targets** succeed. A failed target does not prevent other
+only after **all five targets** succeed. A failed target does not prevent other
 targets from completing and uploading their verified artifacts.
 
 | Package target | Runner | Backend and compatibility |
 | --- | --- | --- |
-| `windows-x64-cpu` | Windows Server 2022 | CPU, automatically selected x64/SSE/AVX variants |
-| `windows-x64-cuda` | Windows Server 2022 | Same CPU variants plus CUDA 12.4.1 |
+| `windows-x64-cuda` | Windows Server 2022 | Automatically selected CPU variants plus CUDA 12.4.1; also runs without a GPU |
 | `macos-x64-metal` | macOS 15 Intel | Intel CPU and embedded Metal; macOS 13+ |
 | `macos-arm64-metal` | macOS 15 ARM64 | Apple Silicon CPU and embedded Metal; macOS 13+ |
 | `linux-x64-cpu` | Ubuntu 22.04 x64 | CPU, AVX2-capable x86-64 processor |
 | `linux-arm64-cpu` | Ubuntu 22.04 ARM64 | CPU, native ARM64 build |
 
-Windows packages include matching whisper/ggml DLLs, CPU backend DLLs and the
-MSVC CRT/OpenMP redistributable DLLs. The CUDA package also includes the CUDA
-runtime and cuBLAS libraries. It requires a compatible NVIDIA driver on the
-destination machine; installing the CUDA toolkit there is unnecessary.
+The Windows package includes matching whisper/ggml DLLs, CPU backend DLLs, the
+MSVC CRT/OpenMP redistributable DLLs, the CUDA runtime and cuBLAS libraries.
+The same package runs on CPU when no compatible GPU is available; a separate
+Windows CPU build is unnecessary. GPU acceleration requires a compatible NVIDIA
+driver on the destination machine; installing the CUDA toolkit there is
+unnecessary.
 CUDA GPU architecture selection follows the pinned upstream CMake defaults,
 including PTX where upstream uses it. CUDA 12.4 does not include native Blackwell
 kernels; this is not a validated package for RTX 50-series GPUs.
 
 CUDA 12.4 requires an older MSVC compiler than the default on current runners.
 The workflow installs MSVC 14.38 and selects it explicitly, rather than disabling
-NVIDIA's compiler compatibility check. CPU builds use the runner's default MSVC.
+NVIDIA's compiler compatibility check.
 
 Unix builds link whisper/ggml statically. macOS packages require only system
 frameworks/libraries and include the Metal shader library in the executable.

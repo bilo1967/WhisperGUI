@@ -32,7 +32,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: windows-x64-cpu, runner: windows-2022 }
           - { target: windows-x64-cuda, runner: windows-2022 }
           - { target: macos-x64-metal, runner: macos-15-intel }
           - { target: macos-arm64-metal, runner: macos-15 }
@@ -119,8 +118,8 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 6
-          test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 6
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 5
+          test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 5
           cat ./*.sha256 > SHA256SUMS.txt
           sha256sum --check SHA256SUMS.txt
           tag="whisper-runtime-v${WHISPER_VERSION}-build-${GITHUB_RUN_NUMBER}"

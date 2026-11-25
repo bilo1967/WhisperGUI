@@ -51,6 +51,8 @@ Place the matching **`whisper-cli`** and **FFmpeg** executables in a `bin/` dire
 
 Use binaries for the target operating system and CPU architecture. On Linux, a compatible native file-dialog utility (such as Zenity) is also required. The runtime bundles are not included in this source repository.
 
+Our independent [whisper.cpp runtime build workflow](docs/whisper-runtime.md) builds and checks a fixed upstream version for Windows CPU/CUDA, macOS Intel/Apple Silicon and Linux x64/ARM64. It produces downloadable runtime ZIPs separately from the application packaging workflows.
+
 ## Installing on macOS
 
 Download the ZIP matching your Mac: **arm64** for Apple Silicon or **amd64** for Intel.

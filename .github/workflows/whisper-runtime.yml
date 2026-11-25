@@ -1,0 +1,132 @@
+name: Build whisper.cpp runtimes
+run-name: whisper.cpp 1.9.6 runtimes · ${{ github.run_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Keep all verified packages in a dedicated runtime release'
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/whisper-runtime.yml'
+      - 'scripts/build-whisper-runtime.py'
+
+permissions:
+  contents: read
+
+env:
+  WHISPER_VERSION: '1.9.6'
+  # v1.9.6: build this exact source, independently of changes to upstream tags.
+  WHISPER_COMMIT: '96ec4d9823e9d0211944172da35f9f29134af990'
+  CUDA_VERSION: '12.4.1'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64-cpu, runner: windows-2022 }
+          - { target: windows-x64-cuda, runner: windows-2022 }
+          - { target: macos-x64-metal, runner: macos-15-intel }
+          - { target: macos-arm64-metal, runner: macos-15 }
+          - { target: linux-x64-cpu, runner: ubuntu-22.04 }
+          - { target: linux-arm64-cpu, runner: ubuntu-22.04-arm }
+    steps:
+      - name: Checkout WhisperGUI build scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout fixed whisper.cpp source
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: ${{ env.WHISPER_COMMIT }}
+          path: whisper-src
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CUDA-compatible MSVC toolset
+        if: matrix.target == 'windows-x64-cuda'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # CUDA 12.4 needs MSVC 19.3x; do not bypass NVIDIA's compiler check.
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio not found' }
+          $installer = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vs_installer.exe"
+          $proc = Start-Process -FilePath $installer -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.38.17.8.x86.x64', '--quiet', '--norestart', '--nocache') -Wait -PassThru
+          if ($proc.ExitCode -notin @(0, 3010)) { throw "MSVC installation failed: $($proc.ExitCode)" }
+          if (-not (Test-Path "$vs/VC/Tools/MSVC/14.38.*/bin/Hostx64/x64/cl.exe")) { throw 'MSVC 14.38 was not installed' }
+      - name: Install fixed CUDA toolkit
+        if: matrix.target == 'windows-x64-cuda'
+        uses: Jimver/cuda-toolkit@c35baa1a18fd1fc9dcf47c5bd839bf30559c0bc3 # v0.2.24
+        with:
+          cuda: ${{ env.CUDA_VERSION }}
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+          use-github-cache: false
+      - name: Build, stage, test and archive runtime
+        env:
+          RUNTIME_TARGET: ${{ matrix.target }}
+        run: python scripts/build-whisper-runtime.py
+      - name: Upload verified runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ env.WHISPER_VERSION }}-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Upload build and smoke-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-logs-${{ matrix.target }}
+          path: |
+            runtime-logs/
+            whisper-build/CMakeCache.txt
+            whisper-build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    name: Preserve verified runtimes
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: whisper-${{ env.WHISPER_VERSION }}-*
+          path: dist
+          merge-multiple: true
+      - name: Verify complete set and publish runtime release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 6
+          test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 6
+          cat ./*.sha256 > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+          tag="whisper-runtime-v${WHISPER_VERSION}-build-${GITHUB_RUN_NUMBER}"
+          printf 'whisper.cpp %s, source commit %s.\n\nBuilt and smoke-tested by %s/%s/actions/runs/%s.\n\nPackages contain bin/, licenses and BUILD-INFO.json; no models or FFmpeg. GPU execution requires local validation: hosted runners test CPU inference, including the CUDA and Metal packages.\n' \
+            "$WHISPER_VERSION" "$WHISPER_COMMIT" 'https://github.com' "$GH_REPO" "$GITHUB_RUN_ID" > notes.txt
+          gh release create "$tag" ./*.zip SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "whisper.cpp $WHISPER_VERSION runtimes (build $GITHUB_RUN_NUMBER)" \
+            --notes-file notes.txt
